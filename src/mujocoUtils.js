@@ -267,6 +267,11 @@ export function setupGUI(parentContext) {
       keyboardLabel = [];
       for (let i = 0; i < lines.length; i++) {
         const label = keyboardFolder.add({ info: lines[i] }, 'info').name('').disable();
+        // Hide the label column to use full width for the value
+        const labelDom = label.domElement.querySelector('.name');
+        if (labelDom) labelDom.style.display = 'none';
+        const valueDom = label.domElement.querySelector('.widget');
+        if (valueDom) valueDom.style.width = '100%';
         keyboardLabel.push(label);
       }
       keyboardFolder.open();
