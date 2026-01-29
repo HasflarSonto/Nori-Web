@@ -90,11 +90,11 @@ function inverseKinematics(x, y, l1 = 0.1159, l2 = 0.1350) {
 
 class XLeRobotController {
   constructor() {
-    // Control constants
-    this.JOINT_STEP = 0.01;
-    this.EE_STEP = 0.005;
-    this.PITCH_STEP = 0.02;
-    this.TIP_LENGTH = 0.108;  // Length from wrist to end effector tip
+    // Control constants (1/8 of original for finer control)
+    this.JOINT_STEP = 0.00125;    // 0.01 / 8
+    this.EE_STEP = 0.000625;      // 0.005 / 8
+    this.PITCH_STEP = 0.0025;     // 0.02 / 8
+    this.TIP_LENGTH = 0.108;      // Length from wrist to end effector tip
     this.BASE_SPEED = 0.5;
 
     // Gripper positions
