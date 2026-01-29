@@ -14,21 +14,12 @@
       <img src="https://img.shields.io/badge/license-MIT-brightgreen" title="License: MIT"></a>
 </p>
 
-## The Power of MuJoCo in your Browser.
+## Run XLeRobot in MuJoCo in your Browser.
 
 Load and Run MuJoCo 3.3.8 Models using JavaScript and the official MuJoCo WebAssembly Bindings.
 
-This project used to be a WASM compilation and set of javascript bindings for MuJoCo, but since Deepmind completed the official MuJoCo bindings, this project is now just a small demo suite in the `examples` folder.
+### [See the Live Demo Here](https://vector-wangel.github.io/XLeRobot-Web/)
 
-### [See the Live Demo Here](https://zalo.github.io/mujoco_wasm/)
-
-### [See a more Advanced Example Here](https://kzakka.com/robopianist/)
-
-## Build
-
-Simply ensure `npm` is installed and run `npm install` to pull three.js and MuJoCo's Official WASM bindings.
-
-To serve and run the index.html page while developing, use an HTTP Server.  I like to use [five-server](https://github.com/yandeu/five-server).
 
 ## JavaScript API
 
@@ -73,3 +64,4 @@ mujoco.mj_applyFT(model, data, [fx, fy, fz], [tx, ty, tz], [px, py, pz], bodyId,
 data.delete();
 model.delete();
 ```
+
