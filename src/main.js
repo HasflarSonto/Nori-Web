@@ -39,6 +39,7 @@ export class MuJoCoDemo {
     this.updateGUICallbacks = [];
 
     this.container = document.createElement( 'div' );
+    this.container.style.cssText = 'position: relative; width: 100%; height: 100%;';
     document.body.appendChild( this.container );
 
     this.scene = new THREE.Scene();
@@ -73,7 +74,7 @@ export class MuJoCoDemo {
     targetObject.position.set(0, 1, 0);
     this.scene.add( this.spotlight );
 
-    this.renderer = new THREE.WebGLRenderer( { antialias: true } );
+    this.renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true } );
     this.renderer.setPixelRatio(1.0);////window.devicePixelRatio );
     this.renderer.setSize( window.innerWidth, window.innerHeight );
     this.renderer.shadowMap.enabled = true;
@@ -295,15 +296,13 @@ export class MuJoCoDemo {
     // Draw Tendons and Flex verts
     drawTendonsAndFlex(this.mujocoRoot, this.model, this.data);
 
-    // Render!
-    // When 3DGS is enabled, bypass post-processing (Spark uses its own shaders)
+    // Sync camera to 3DGS iframe if enabled
     if (this.gsController && this.gsController.enabled) {
-      // Direct rendering - SparkRenderer handles 3DGS internally
-      this.renderer.render(this.scene, this.camera);
-    } else {
-      // Normal rendering with post-processing
-      this.composer.render();
+      this.gsController.syncCamera(this.camera, this.controls);
     }
+
+    // Render with post-processing
+    this.composer.render();
   }
 }
 
@@ -311,18 +310,18 @@ let demo = new MuJoCoDemo();
 await demo.init();
 
 // ============================================================================
-// Gaussian Splatting Environment Controller (Lazy Loading)
+// Gaussian Splatting Environment Controller (iframe isolation)
 // ============================================================================
 
 class GaussianSplatController {
-  constructor(scene, renderer, camera) {
+  constructor(container, scene) {
+    this.container = container;
     this.scene = scene;
-    this.renderer = renderer;
-    this.camera = camera;
-    this.splatMesh = null;
-    this.SparkModule = null;
+    this.iframe = null;
     this.enabled = false;
     this.loading = false;
+    this.savedBackground = null;
+    this.savedFog = null;
   }
 
   async enable(spzUrl = './assets/scene.spz') {
@@ -330,86 +329,158 @@ class GaussianSplatController {
     this.loading = true;
 
     try {
-      // Dynamic import Spark (first time only)
-      if (!this.SparkModule) {
-        console.log('Loading Spark.js module...');
-        this.SparkModule = await import('https://sparkjs.dev/releases/spark/0.1.10/spark.module.js');
-        console.log('Spark.js module loaded');
+      console.log('Creating 3DGS iframe viewer...');
+
+      // Create iframe for isolated 3DGS rendering
+      this.iframe = document.createElement('iframe');
+      this.iframe.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        border: none;
+        pointer-events: none;
+        z-index: 0;
+      `;
+
+      // Create the iframe content with Spark.js viewer
+      const iframeContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { overflow: hidden; background: transparent; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/controls/OrbitControls.js';
+    import { SplatMesh } from 'https://sparkjs.dev/releases/spark/0.1.10/spark.module.js';
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.001, 100);
+    camera.position.set(2.0, 1.7, 1.7);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.7, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.10;
+    controls.update();
+
+    // Load splat
+    const splat = new SplatMesh({ url: '${spzUrl}' });
+    scene.add(splat);
+
+    // Sync camera with parent
+    window.addEventListener('message', (e) => {
+      if (e.data.type === 'camera') {
+        camera.position.fromArray(e.data.position);
+        camera.quaternion.fromArray(e.data.quaternion);
+        controls.target.fromArray(e.data.target);
+        camera.updateProjectionMatrix();
       }
+    });
 
-      const { SplatLoader, SplatMesh, SparkRenderer } = this.SparkModule;
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
 
-      console.log('Loading SPZ file:', spzUrl);
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
 
-      // Create a promise to wait for loading
-      const packedSplats = await new Promise((resolve, reject) => {
-        const loader = new SplatLoader();
-        loader.loadAsync(spzUrl, (event) => {
-          if (event.type === 'progress' && event.progress !== undefined) {
-            console.log(`Loading progress: ${Math.round(event.progress * 100)}%`);
+    // Signal ready
+    window.parent.postMessage({ type: 'gsReady' }, '*');
+  </script>
+</body>
+</html>`;
+
+      // Insert iframe before the main canvas
+      this.container.insertBefore(this.iframe, this.container.firstChild);
+
+      // Write content to iframe
+      const blob = new Blob([iframeContent], { type: 'text/html' });
+      this.iframe.src = URL.createObjectURL(blob);
+
+      // Wait for iframe to be ready
+      await new Promise((resolve) => {
+        const handler = (e) => {
+          if (e.data.type === 'gsReady') {
+            window.removeEventListener('message', handler);
+            resolve();
           }
-        })
-        .then(resolve)
-        .catch(reject);
+        };
+        window.addEventListener('message', handler);
+        // Timeout fallback
+        setTimeout(resolve, 3000);
       });
 
-      console.log('SPZ file loaded, creating SplatMesh...');
-
-      // Create SparkRenderer - this handles the custom shader chunks
-      // Pass in the WebGLRenderer so Spark can manage rendering
-      this.sparkRenderer = new SparkRenderer({ renderer: this.renderer });
-
-      // Create SplatMesh with loaded data
-      this.splatMesh = new SplatMesh({ packedSplats });
-
-      // Adjust position/rotation/scale as needed
-      this.splatMesh.position.set(0, 0, 0);
-      // this.splatMesh.rotation.set(0, Math.PI, 0);
-      // this.splatMesh.scale.setScalar(1.0);
-
-      // Add SparkRenderer to scene (it manages splat rendering internally)
-      this.scene.add(this.sparkRenderer);
-
-      // Add SplatMesh - it will be rendered by SparkRenderer
-      this.scene.add(this.splatMesh);
+      // Save and clear scene background to show iframe through
+      this.savedBackground = this.scene.background;
+      this.savedFog = this.scene.fog;
+      this.scene.background = null;
+      this.scene.fog = null;
 
       this.enabled = true;
       console.log('3D Gaussian Splatting environment enabled');
     } catch (err) {
       console.error('Failed to load 3DGS:', err);
       this.loading = false;
-      throw err; // Re-throw to let caller handle
+      throw err;
     }
 
     this.loading = false;
   }
 
   /**
-   * Render method (not needed when using SparkRenderer in main scene)
+   * Sync camera from main scene to iframe
    */
-  render() {
-    // SparkRenderer handles rendering automatically when added to scene
+  syncCamera(camera, controls) {
+    if (!this.enabled || !this.iframe || !this.iframe.contentWindow) return;
+
+    this.iframe.contentWindow.postMessage({
+      type: 'camera',
+      position: camera.position.toArray(),
+      quaternion: camera.quaternion.toArray(),
+      target: controls.target.toArray()
+    }, '*');
   }
 
   disable() {
     if (!this.enabled) return;
 
-    // Remove SplatMesh from scene
-    if (this.splatMesh) {
-      this.scene.remove(this.splatMesh);
-      if (this.splatMesh.dispose) {
-        this.splatMesh.dispose();
+    if (this.iframe) {
+      // Revoke blob URL
+      if (this.iframe.src.startsWith('blob:')) {
+        URL.revokeObjectURL(this.iframe.src);
       }
-      this.splatMesh = null;
+      this.iframe.remove();
+      this.iframe = null;
     }
 
-    // Remove SparkRenderer from scene
-    if (this.sparkRenderer) {
-      this.scene.remove(this.sparkRenderer);
-      if (this.sparkRenderer.dispose) {
-        this.sparkRenderer.dispose();
-      }
-      this.sparkRenderer = null;
+    // Restore scene background
+    if (this.savedBackground !== null) {
+      this.scene.background = this.savedBackground;
+      this.savedBackground = null;
+    }
+    if (this.savedFog !== null) {
+      this.scene.fog = this.savedFog;
+      this.savedFog = null;
     }
 
     this.enabled = false;
@@ -431,7 +502,7 @@ class GaussianSplatController {
 }
 
 // Create controller and UI button
-const gsController = new GaussianSplatController(demo.scene, demo.renderer, demo.camera);
+const gsController = new GaussianSplatController(demo.container, demo.scene);
 demo.gsController = gsController;  // Attach to demo for render loop access
 
 const gsToggleBtn = document.createElement('button');
