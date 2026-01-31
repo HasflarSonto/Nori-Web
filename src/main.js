@@ -296,8 +296,34 @@ export class MuJoCoDemo {
     drawTendonsAndFlex(this.mujocoRoot, this.model, this.data);
 
     // Render!
-    // this.renderer.render( this.scene, this.camera );  // 原始渲染
-    this.composer.render();  // ===== 改用后处理渲染 =====
+    // Check if 3DGS is enabled
+    if (this.gsController && this.gsController.enabled) {
+      // When 3DGS is enabled, we need to bypass post-processing
+      // because Spark.js uses its own Three.js instance with custom shaders
+      // that conflict with the post-processing pipeline
+
+      // Clear and render 3DGS first
+      this.renderer.clear();
+      this.gsController.render();
+
+      // Save and modify scene background
+      const savedBackground = this.scene.background;
+      const savedFog = this.scene.fog;
+      this.scene.background = null;
+      this.scene.fog = null;
+
+      // Render main scene on top (without clearing)
+      this.renderer.autoClear = false;
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.autoClear = true;
+
+      // Restore scene properties
+      this.scene.background = savedBackground;
+      this.scene.fog = savedFog;
+    } else {
+      // Normal rendering with post-processing
+      this.composer.render();
+    }
   }
 }
 
@@ -309,8 +335,10 @@ await demo.init();
 // ============================================================================
 
 class GaussianSplatController {
-  constructor(scene) {
+  constructor(scene, renderer, camera) {
     this.scene = scene;
+    this.renderer = renderer;
+    this.camera = camera;
     this.splatMesh = null;
     this.SparkModule = null;
     this.enabled = false;
@@ -348,6 +376,9 @@ class GaussianSplatController {
 
       console.log('SPZ file loaded, creating SplatMesh...');
 
+      // Create a separate scene for 3DGS to avoid shader conflicts
+      this.splatScene = new THREE.Scene();
+
       // Create SplatMesh with loaded data
       this.splatMesh = new SplatMesh({ packedSplats });
 
@@ -356,7 +387,7 @@ class GaussianSplatController {
       // this.splatMesh.rotation.set(0, Math.PI, 0);
       // this.splatMesh.scale.setScalar(1.0);
 
-      this.scene.add(this.splatMesh);
+      this.splatScene.add(this.splatMesh);
       this.enabled = true;
       console.log('3D Gaussian Splatting environment enabled');
     } catch (err) {
@@ -368,15 +399,32 @@ class GaussianSplatController {
     this.loading = false;
   }
 
+  /**
+   * Render the 3DGS scene (assumes clear was already called)
+   */
+  render() {
+    if (!this.enabled || !this.splatMesh || !this.splatScene) return;
+
+    // Render 3DGS scene (don't clear, caller handles that)
+    this.renderer.render(this.splatScene, this.camera);
+  }
+
   disable() {
     if (!this.enabled || !this.splatMesh) return;
 
-    this.scene.remove(this.splatMesh);
+    if (this.splatScene) {
+      this.splatScene.remove(this.splatMesh);
+    }
     if (this.splatMesh.dispose) {
       this.splatMesh.dispose();
     }
     this.splatMesh = null;
+    this.splatScene = null;
     this.enabled = false;
+
+    // Restore autoClear
+    this.renderer.autoClear = true;
+
     console.log('3D Gaussian Splatting environment disabled');
   }
 
@@ -395,7 +443,8 @@ class GaussianSplatController {
 }
 
 // Create controller and UI button
-const gsController = new GaussianSplatController(demo.scene);
+const gsController = new GaussianSplatController(demo.scene, demo.renderer, demo.camera);
+demo.gsController = gsController;  // Attach to demo for render loop access
 
 const gsToggleBtn = document.createElement('button');
 gsToggleBtn.textContent = '🌍 Enable 3D Environment';
