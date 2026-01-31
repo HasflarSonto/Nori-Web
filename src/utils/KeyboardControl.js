@@ -477,7 +477,7 @@ function quatNormalize(q) {
 class PandaController {
   constructor() {
     // Movement speed constants
-    this.POS_STEP = 0.002;
+    this.POS_STEP = 0.001;
     this.ROT_STEP = 0.02;
 
     // DLS IK parameters
@@ -905,6 +905,30 @@ class PandaController {
       this.mujoco.mj_forward(model, data);
     }
     this._initState(data);
+
+    // Reset cube ("box") to initial position [0.1, -0.4, 1]
+    const boxBodyId = this._getBodyId(model, 'box');
+    if (boxBodyId >= 0) {
+      const jntAdr = model.body_jntadr[boxBodyId];
+      if (jntAdr >= 0) {
+        const qposAdr = model.jnt_qposadr[jntAdr];
+        // Set position (x, y, z)
+        data.qpos[qposAdr] = 0.1;
+        data.qpos[qposAdr + 1] = -0.4;
+        data.qpos[qposAdr + 2] = 1.0;
+        // Set orientation to identity quaternion (w, x, y, z)
+        data.qpos[qposAdr + 3] = 1.0;
+        data.qpos[qposAdr + 4] = 0.0;
+        data.qpos[qposAdr + 5] = 0.0;
+        data.qpos[qposAdr + 6] = 0.0;
+        // Reset velocities
+        const dofAdr = model.jnt_dofadr[jntAdr];
+        for (let i = 0; i < 6; i++) {
+          data.qvel[dofAdr + i] = 0.0;
+        }
+        this.mujoco.mj_forward(model, data);
+      }
+    }
   }
 
   /**
