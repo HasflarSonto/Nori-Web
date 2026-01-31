@@ -324,12 +324,32 @@ class GaussianSplatController {
     try {
       // Dynamic import Spark (first time only)
       if (!this.SparkModule) {
+        console.log('Loading Spark.js module...');
         this.SparkModule = await import('https://sparkjs.dev/releases/spark/0.1.10/spark.module.js');
+        console.log('Spark.js module loaded');
       }
 
-      // Create SplatMesh (this fetches the SPZ file)
-      const { SplatMesh } = this.SparkModule;
-      this.splatMesh = new SplatMesh({ url: spzUrl });
+      // Use SplatLoader for proper async loading with progress
+      const { SplatLoader, SplatMesh } = this.SparkModule;
+
+      console.log('Loading SPZ file:', spzUrl);
+
+      // Create a promise to wait for loading
+      const packedSplats = await new Promise((resolve, reject) => {
+        const loader = new SplatLoader();
+        loader.loadAsync(spzUrl, (event) => {
+          if (event.type === 'progress' && event.progress !== undefined) {
+            console.log(`Loading progress: ${Math.round(event.progress * 100)}%`);
+          }
+        })
+        .then(resolve)
+        .catch(reject);
+      });
+
+      console.log('SPZ file loaded, creating SplatMesh...');
+
+      // Create SplatMesh with loaded data
+      this.splatMesh = new SplatMesh({ packedSplats });
 
       // Adjust position/rotation/scale as needed
       this.splatMesh.position.set(0, 0, 0);
@@ -341,6 +361,8 @@ class GaussianSplatController {
       console.log('3D Gaussian Splatting environment enabled');
     } catch (err) {
       console.error('Failed to load 3DGS:', err);
+      this.loading = false;
+      throw err; // Re-throw to let caller handle
     }
 
     this.loading = false;
@@ -409,12 +431,24 @@ gsToggleBtn.onclick = async () => {
   gsToggleBtn.style.cursor = 'wait';
   gsToggleBtn.textContent = '⏳ Loading...';
 
-  const enabled = await gsController.toggle('./assets/scene.spz');
+  try {
+    const enabled = await gsController.toggle('./assets/scene.spz');
 
-  gsToggleBtn.textContent = enabled ? '🌍 Disable 3D Environment' : '🌍 Enable 3D Environment';
-  gsToggleBtn.style.background = enabled
-    ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-    : 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)';
+    gsToggleBtn.textContent = enabled ? '🌍 Disable 3D Environment' : '🌍 Enable 3D Environment';
+    gsToggleBtn.style.background = enabled
+      ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+      : 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)';
+  } catch (err) {
+    console.error('Toggle failed:', err);
+    gsToggleBtn.textContent = '❌ Load Failed - Retry';
+    gsToggleBtn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+    // Reset after 2 seconds
+    setTimeout(() => {
+      gsToggleBtn.textContent = '🌍 Enable 3D Environment';
+      gsToggleBtn.style.background = 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)';
+    }, 2000);
+  }
+
   gsToggleBtn.disabled = false;
   gsToggleBtn.style.cursor = 'pointer';
 };
