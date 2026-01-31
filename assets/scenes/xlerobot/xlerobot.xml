@@ -7,8 +7,8 @@
 
   <asset>
     <material name="white" rgba="0.3 0.3 0.3 1" specular="0.1" shininess="0.1"/>
-    <material name="grey" rgba="0.6 0.6 0.6 1" specular="0.1" shininess="0.1"/>
-    <material name="blue" rgba="0.2 0.3 0.6 1" specular="0.1" shininess="0.1"/>
+    <material name="grey" rgba="0.5 0.5 0.5 1" specular="0.1" shininess="0.1"/>
+    <material name="blue" rgba="0.15 0.25 0.5 1" specular="0.1" shininess="0.1"/>
     <material name="motor" rgba="0.02 0.02 0.02 1" specular="0.1" shininess="0.1"/>
 
     <!-- Arm meshes -->
