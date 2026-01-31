@@ -74,7 +74,7 @@ export class MuJoCoDemo {
     targetObject.position.set(0, 1, 0);
     this.scene.add( this.spotlight );
 
-    this.renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true } );
+    this.renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true, premultipliedAlpha: false } );
     this.renderer.setPixelRatio(1.0);////window.devicePixelRatio );
     this.renderer.setSize( window.innerWidth, window.innerHeight );
     this.renderer.shadowMap.enabled = true;
@@ -401,6 +401,16 @@ class GaussianSplatController {
       this.scene.background = null;
       this.scene.fog = null;
 
+      // Hide floor/ground meshes to show GS through
+      this.hiddenMeshes = [];
+      this.scene.traverse((obj) => {
+        if (obj.isMesh && obj.name && (obj.name.toLowerCase().includes('floor') || obj.name.toLowerCase().includes('ground') || obj.name.toLowerCase().includes('plane'))) {
+          obj.visible = false;
+          this.hiddenMeshes.push(obj);
+          console.log('Hidden mesh for GS:', obj.name);
+        }
+      });
+
       this.enabled = true;
       console.log('3D Gaussian Splatting environment enabled');
     } catch (err) {
@@ -446,6 +456,14 @@ class GaussianSplatController {
     if (this.savedFog !== null) {
       this.scene.fog = this.savedFog;
       this.savedFog = null;
+    }
+
+    // Restore hidden meshes
+    if (this.hiddenMeshes) {
+      this.hiddenMeshes.forEach(mesh => {
+        mesh.visible = true;
+      });
+      this.hiddenMeshes = null;
     }
 
     this.enabled = false;
