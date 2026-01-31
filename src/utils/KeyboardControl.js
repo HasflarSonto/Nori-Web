@@ -501,10 +501,6 @@ class PandaController {
     this.mujoco = null;
     this.handBodyId = -1;
     this.initialized = false;
-
-    // Pre-allocated arrays for Jacobian computation
-    this.jacp = null;
-    this.jacr = null;
   }
 
   /**
@@ -597,22 +593,6 @@ class PandaController {
   }
 
   /**
-   * Extract relevant columns from full Jacobian for arm joints
-   */
-  _extractJacobian(fullJac, nRows, model) {
-    const J = [];
-    for (let r = 0; r < nRows; r++) {
-      const row = [];
-      for (let c = 0; c < this.ARM_JOINT_INDICES.length; c++) {
-        const jointIdx = this.ARM_JOINT_INDICES[c];
-        row.push(fullJac[r * model.nv + jointIdx]);
-      }
-      J.push(row);
-    }
-    return J;
-  }
-
-  /**
    * Solve linear system using Gaussian elimination
    */
   _solveLinear(A, b) {
@@ -689,33 +669,66 @@ class PandaController {
   }
 
   /**
-   * Single step IK for position and orientation
+   * Compute Jacobian using numerical differentiation
+   * More reliable than mj_jac which may not be available in WASM
    */
-  _stepIK(targetPos, targetQuat, model, data) {
+  _computeNumericalJacobian(model, data) {
+    const epsilon = 1e-6;
+    const nj = this.ARM_JOINT_INDICES.length;
+
+    // Save current joint positions
+    const savedQpos = new Float64Array(model.nq);
+    savedQpos.set(data.qpos);
+
+    // Get current EE position
+    this.mujoco.mj_forward(model, data);
+    const currentPos = this._getEEPosition(data);
+
+    // Compute Jacobian columns via finite differences
+    const J = [];
+    for (let row = 0; row < 3; row++) {
+      J.push(new Array(nj).fill(0));
+    }
+
+    for (let j = 0; j < nj; j++) {
+      const jointIdx = this.ARM_JOINT_INDICES[j];
+
+      // Perturb joint
+      data.qpos[jointIdx] = savedQpos[jointIdx] + epsilon;
+      this.mujoco.mj_forward(model, data);
+      const perturbedPos = this._getEEPosition(data);
+
+      // Compute partial derivative
+      for (let row = 0; row < 3; row++) {
+        J[row][j] = (perturbedPos[row] - currentPos[row]) / epsilon;
+      }
+
+      // Restore joint
+      data.qpos[jointIdx] = savedQpos[jointIdx];
+    }
+
+    // Restore all qpos
+    data.qpos.set(savedQpos);
+    this.mujoco.mj_forward(model, data);
+
+    return J;
+  }
+
+  /**
+   * Single step IK for position only (simplified, more stable)
+   */
+  _stepIK(targetPos, _targetQuat, model, data) {
     // Forward kinematics to update body positions
     this.mujoco.mj_forward(model, data);
 
-    // Compute errors
+    // Compute position error only (orientation control can be added later)
     const posError = this._posError(targetPos, data);
-    const rotError = this._rotError(targetQuat, data);
 
-    // Get hand body position for Jacobian computation
-    const idx = this.handBodyId * 3;
-    const point = new Float64Array([data.xpos[idx], data.xpos[idx + 1], data.xpos[idx + 2]]);
+    // Compute numerical Jacobian
+    const J = this._computeNumericalJacobian(model, data);
 
-    // Compute Jacobians using mj_jac
-    this.mujoco.mj_jac(model, data, this.jacp, this.jacr, point, this.handBodyId);
-
-    // Extract relevant columns
-    const Jp = this._extractJacobian(this.jacp, 3, model);
-    const Jr = this._extractJacobian(this.jacr, 3, model);
-    const J = [...Jp, ...Jr];
-
-    // Combined error (with position weighted more)
-    const error = [...posError.map(e => e * 1.0), ...rotError.map(e => e * 0.3)];
-
-    // Solve DLS
-    return this._solveDLS(J, error);
+    // Solve DLS for position only
+    return this._solveDLS(J, posError);
   }
 
   /**
@@ -751,10 +764,6 @@ class PandaController {
       console.error('PandaController: hand body not found');
       return;
     }
-
-    // Allocate Jacobian arrays
-    this.jacp = new Float64Array(3 * model.nv);
-    this.jacr = new Float64Array(3 * model.nv);
 
     // Do forward kinematics to get initial EE position
     mujoco.mj_forward(model, data);
