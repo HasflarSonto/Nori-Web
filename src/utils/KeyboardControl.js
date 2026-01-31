@@ -926,8 +926,8 @@ class PandaController {
     // ========================================
     if (keyStates['KeyA']) this.state.targetPos[0] += this.POS_STEP;
     if (keyStates['KeyD']) this.state.targetPos[0] -= this.POS_STEP;
-    if (keyStates['KeyW']) this.state.targetPos[1] += this.POS_STEP;
-    if (keyStates['KeyS']) this.state.targetPos[1] -= this.POS_STEP;
+    if (keyStates['KeyS']) this.state.targetPos[1] += this.POS_STEP;
+    if (keyStates['KeyW']) this.state.targetPos[1] -= this.POS_STEP;
     if (keyStates['KeyQ']) this.state.targetPos[2] += this.POS_STEP;
     if (keyStates['KeyE']) this.state.targetPos[2] -= this.POS_STEP;
 
