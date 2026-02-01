@@ -30,6 +30,7 @@ export function setupGUI(parentContext) {
   parentContext.gui.add(parentContext.params, 'scene', {
     "Humanoid": "humanoid.xml",
     "XLeRobot": "xlerobot/scene.xml",
+    "SO101": "xlerobot/scene_arm.xml",
     "Panda": "franka_emika_panda/scene.xml",
   }).name('Example Scene').onChange(reload);
 

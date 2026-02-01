@@ -1,0 +1,170 @@
+<mujoco model="SO101">
+  <compiler angle="radian" meshdir="./meshes/"/>
+
+  <option integrator="implicitfast" noslip_iterations="3"/>
+
+  <asset>
+    <material name="white" rgba="0.3 0.3 0.3 1" specular="0.1" shininess="0.1"/>
+    <material name="grey" rgba="0.5 0.5 0.5 1" specular="0.1" shininess="0.1"/>
+    <material name="blue" rgba="0.15 0.25 0.5 1" specular="0.1" shininess="0.1"/>
+    <material name="motor" rgba="0.1 0.1 0.1 1" specular="0.1" shininess="0.1"/>
+
+    <!-- Arm meshes -->
+    <mesh name="Base" file="Base.stl"/>
+    <mesh name="Base_Motor" file="Base_Motor.stl"/>
+    <mesh name="Rotation_Pitch" file="Rotation_Pitch.stl"/>
+    <mesh name="Rotation_Pitch_Motor" file="Rotation_Pitch_Motor.stl"/>
+    <mesh name="Upper_Arm" file="Upper_Arm.stl"/>
+    <mesh name="Upper_Arm_Motor" file="Upper_Arm_Motor.stl"/>
+    <mesh name="Lower_Arm" file="Lower_Arm.stl"/>
+    <mesh name="Lower_Arm_Motor" file="Lower_Arm_Motor.stl"/>
+    <mesh name="Wrist_Pitch_Roll" file="Wrist_Pitch_Roll.stl"/>
+    <mesh name="Wrist_Pitch_Roll_Motor" file="Wrist_Pitch_Roll_Motor.stl"/>
+    <mesh name="Fixed_Jaw" file="Fixed_Jaw.stl"/>
+    <mesh name="Fixed_Jaw_Motor" file="Fixed_Jaw_Motor.stl"/>
+    <mesh name="Fixed_Jaw_part1" file="Fixed_Jaw_part1.ply.convex.stl"/>
+    <mesh name="Fixed_Jaw_part2" file="Fixed_Jaw_part2.ply.convex.stl"/>
+    <mesh name="Moving_Jaw" file="Moving_Jaw.stl"/>
+    <mesh name="Moving_Jaw_part1" file="Moving_Jaw_part1.ply.convex.stl"/>
+    <mesh name="Moving_Jaw_part2" file="Moving_Jaw_part2.ply.convex.stl"/>
+    <mesh name="Moving_Jaw_part3" file="Moving_Jaw_part3.ply.convex.stl"/>
+
+    <!-- Camera meshes -->
+    <mesh name="XLeRobot_camera1" file="XLeRobot_camera1.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="XLeRobot_camera2" file="XLeRobot_camera2.stl" scale="0.001 0.001 0.001"/>
+  </asset>
+
+  <default>
+    <!-- Default: all geoms don't participate in collision -->
+    <geom contype="0" conaffinity="0" condim="1" solref="0.005 1"/>
+    <!-- STS3215 motor properties (from SO101) -->
+    <default class="sts3215">
+      <geom contype="0" conaffinity="0"/>
+      <joint damping="0.60" frictionloss="0.052" armature="0.028"/>
+      <position kp="998.22" kv="2.731" forcerange="-2.94 2.94"/>
+    </default>
+    <default class="visual">
+      <geom type="mesh" contype="0" conaffinity="0" density="0" group="2"/>
+    </default>
+    <default class="collision">
+      <geom contype="1" conaffinity="1" group="3" type="mesh"
+            condim="4" solref="0.002 1.0" solimp="0.95 0.99 0.001"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <light directional="true" pos="-0.5 0.5 3" dir="0 0 -1"/>
+
+    <!-- Single SO101 Arm mounted on fixed base -->
+    <body name="Base" pos="0 0 0.1" euler="0 0 0">
+      <inertial pos="0.0137179 -5.19711e-05 0.0334843" mass="0.147" fullinertia="0.000114686 0.000136117 0.000130364 -4.59787e-07 4.97151e-06 9.75275e-08"/>
+      <!-- Visual meshes -->
+      <geom type="mesh" mesh="Base" material="white" class="visual"/>
+      <geom type="mesh" mesh="Base_Motor" material="motor" class="visual"/>
+      <!-- Collision meshes -->
+      <geom type="mesh" mesh="Base" class="collision"/>
+      <geom type="mesh" mesh="Base_Motor" class="collision"/>
+
+      <body name="Rotation_Pitch" pos="0 -0.0452 0.0165" euler="1.5708 0 0">
+        <inertial pos="-0.0307604 -1.66727e-05 -0.0252713" mass="0.100006" fullinertia="8.3759e-05 8.10403e-05 2.39783e-05 7.55525e-08 -1.16342e-06 1.54663e-07"/>
+        <joint name="Rotation" type="hinge" axis="0 -1 0" range="-2.16 2.16" class="sts3215"/>
+        <!-- Visual meshes -->
+        <geom type="mesh" mesh="Rotation_Pitch" material="white" class="visual"/>
+        <geom type="mesh" mesh="Rotation_Pitch_Motor" material="motor" class="visual"/>
+        <!-- Collision meshes -->
+        <geom type="mesh" mesh="Rotation_Pitch" class="collision"/>
+        <geom type="mesh" mesh="Rotation_Pitch_Motor" class="collision"/>
+
+        <body name="Upper_Arm" pos="0 0.1025 0.0306" euler="1.5708 0 0">
+          <inertial pos="-0.0898471 -0.00838224 0.0184089" mass="0.103" fullinertia="4.08002e-05 0.000147318 0.000142487 -1.97819e-05 -4.03016e-08 8.97326e-09"/>
+          <joint name="Pitch" type="hinge" axis="-1 0 0" range="-0.22 3.37" class="sts3215"/>
+          <!-- Visual meshes -->
+          <geom type="mesh" mesh="Upper_Arm" material="white" class="visual"/>
+          <geom type="mesh" mesh="Upper_Arm_Motor" material="motor" class="visual"/>
+          <!-- Collision meshes -->
+          <geom type="mesh" mesh="Upper_Arm" class="collision"/>
+          <geom type="mesh" mesh="Upper_Arm_Motor" class="collision"/>
+
+          <body name="Lower_Arm" pos="0 0.11257 0.028" euler="-1.5708 0 0">
+            <inertial pos="-0.0980701 0.00324376 0.0182831" mass="0.104" fullinertia="2.87438e-05 0.000159844 0.00014529 7.41152e-06 1.26409e-06 -4.90188e-08"/>
+            <joint name="Elbow" type="hinge" axis="1 0 0" range="-0.22 3.14" class="sts3215"/>
+            <!-- Visual meshes -->
+            <geom type="mesh" mesh="Lower_Arm" material="white" class="visual"/>
+            <geom type="mesh" mesh="Lower_Arm_Motor" material="motor" class="visual"/>
+            <!-- Collision meshes -->
+            <geom type="mesh" mesh="Lower_Arm" class="collision"/>
+            <geom type="mesh" mesh="Lower_Arm_Motor" class="collision"/>
+
+            <body name="Wrist_Pitch_Roll" pos="0 0.0052 0.1349" euler="-1.5708 0 0">
+              <inertial pos="-0.000103312 -0.0386143 0.0281156" mass="0.079" fullinertia="3.68263e-05 2.5391e-05 2.1e-05 1.7893e-08 -5.28128e-08 3.6412e-06"/>
+              <joint name="Wrist_Pitch" type="hinge" axis="1 0 0" range="-1.6580628494556928 1.6580627293335335" class="sts3215"/>
+              <!-- Visual meshes -->
+              <geom type="mesh" mesh="Wrist_Pitch_Roll" material="white" class="visual"/>
+              <geom type="mesh" mesh="Wrist_Pitch_Roll_Motor" material="motor" class="visual"/>
+              <!-- Collision meshes -->
+              <geom type="mesh" mesh="Wrist_Pitch_Roll" class="collision"/>
+              <geom type="mesh" mesh="Wrist_Pitch_Roll_Motor" class="collision"/>
+
+              <body name="Fixed_Jaw" pos="0 -0.0601 0" euler="0 1.5708 0">
+                <inertial pos="0.000213627 0.000245138 -0.025187" mass="0.087" fullinertia="2.75087e-05 4.33657e-05 3.45059e-05 -3.35241e-07 -5.7352e-06 -5.17847e-08"/>
+                <joint name="Wrist_Roll" type="hinge" axis="0 -1 0" range="-2.7438472969992493 2.841206309382605" class="sts3215"/>
+                <!-- Visual meshes -->
+                <geom type="mesh" mesh="Fixed_Jaw" material="white" class="visual"/>
+                <geom type="mesh" mesh="Fixed_Jaw_Motor" material="motor" class="visual"/>
+                <!-- Collision meshes with very high friction for gripping -->
+                <geom type="mesh" mesh="Fixed_Jaw_part1" class="collision" friction="3 0.2 0.1" condim="6"/>
+                <geom type="mesh" mesh="Fixed_Jaw_part2" class="collision" friction="3 0.2 0.1" condim="6"/>
+
+                <body name="Moving_Jaw" pos="-0.0202 -0.0244 0" euler="3.1416 0 3.33">
+                  <inertial pos="-0.00157495 -0.0300244 0.0192755" mass="0.012" fullinertia="6.61427e-06 1.89032e-06 5.28738e-06 -3.19807e-07 -5.90717e-09 -1.09945e-07"/>
+                  <joint name="Jaw" type="hinge" axis="0 0 1" range="-0.37453297762778586 1.7453291995659765" class="sts3215"/>
+                  <!-- Visual mesh -->
+                  <geom type="mesh" mesh="Moving_Jaw" material="white" class="visual"/>
+                  <!-- Collision meshes with very high friction for gripping -->
+                  <geom type="mesh" mesh="Moving_Jaw_part1" class="collision" friction="3 0.2 0.1" condim="6"/>
+                  <geom type="mesh" mesh="Moving_Jaw_part2" class="collision" friction="3 0.2 0.1" condim="6"/>
+                  <geom type="mesh" mesh="Moving_Jaw_part3" class="collision" friction="3 0.2 0.1" condim="6"/>
+                </body>
+
+                <!-- Camera -->
+                <body name="Camera" pos="0 -0.022 0.05" euler="1.5708 -1.5708 0">
+                  <geom type="mesh" mesh="XLeRobot_camera1" pos="-0.015 -0.026 0" material="white" class="visual"/>
+                  <geom type="mesh" mesh="XLeRobot_camera2" pos="-0.015 -0.026 0" material="motor" class="visual"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <contact>
+    <!-- Exclude collisions between adjacent links -->
+    <exclude body1="Base" body2="Rotation_Pitch"/>
+    <exclude body1="Rotation_Pitch" body2="Upper_Arm"/>
+    <exclude body1="Upper_Arm" body2="Lower_Arm"/>
+    <exclude body1="Lower_Arm" body2="Wrist_Pitch_Roll"/>
+    <exclude body1="Wrist_Pitch_Roll" body2="Fixed_Jaw"/>
+    <exclude body1="Moving_Jaw" body2="Fixed_Jaw"/>
+    <!-- Impossible collisions due to kinematic constraints -->
+    <exclude body1="Rotation_Pitch" body2="Lower_Arm"/>
+    <exclude body1="Rotation_Pitch" body2="Wrist_Pitch_Roll"/>
+    <exclude body1="Upper_Arm" body2="Wrist_Pitch_Roll"/>
+    <exclude body1="Moving_Jaw" body2="Wrist_Pitch_Roll"/>
+  </contact>
+
+  <actuator>
+    <!-- SO101 arm actuators (STS3215 parameters) -->
+    <position class="sts3215" name="Rotation" joint="Rotation" forcerange="-3.35 3.35" ctrlrange="-2.16 2.16"/>
+    <position class="sts3215" name="Pitch" joint="Pitch" forcerange="-3.35 3.35" ctrlrange="-0.22 3.37"/>
+    <position class="sts3215" name="Elbow" joint="Elbow" forcerange="-3.35 3.35" ctrlrange="-0.22 3.14"/>
+    <position class="sts3215" name="Wrist_Pitch" joint="Wrist_Pitch" forcerange="-3.35 3.35" ctrlrange="-1.65806 1.65806"/>
+    <position class="sts3215" name="Wrist_Roll" joint="Wrist_Roll" forcerange="-3.35 3.35" ctrlrange="-2.74385 2.84121"/>
+    <position class="sts3215" name="Jaw" joint="Jaw" forcerange="-10 10" ctrlrange="-0.37453 1.74533"/>
+  </actuator>
+
+  <keyframe>
+    <key name="home" qpos="0 0 0 0 0 -0.37453" ctrl="0 0 0 0 0 -0.37453"/>
+  </keyframe>
+</mujoco>

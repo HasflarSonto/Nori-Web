@@ -7,6 +7,7 @@
 
 import { XLeRobotController } from './controllers/XLeRobotController.js';
 import { PandaController } from './controllers/PandaController.js';
+import { SO101Controller } from './controllers/SO101Controller.js';
 
 // ============================================================================
 // Scene Configuration
@@ -18,6 +19,11 @@ const SCENE_CONFIGS = {
     type: 'custom',
     controller: new XLeRobotController(),
     description: 'XLeRobot Dual-Arm Control'
+  },
+  'xlerobot/scene_arm.xml': {
+    type: 'custom',
+    controller: new SO101Controller(),
+    description: 'SO101 Single-Arm Control'
   },
   'franka_emika_panda/scene.xml': {
     type: 'custom',
