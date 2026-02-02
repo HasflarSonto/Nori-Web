@@ -82,101 +82,32 @@ export class SceneManager {
     console.log(`Loading modular scene: env=${envName}, robot=${robotName}`);
 
     try {
-      const robotConfig = SceneManager.ROBOT_CONFIGS[robotName];
-      if (!robotConfig) {
+      if (!SceneManager.ROBOT_CONFIGS[robotName]) {
         throw new Error(`Unknown robot: ${robotName}`);
       }
 
-      const robotDir = robotConfig.robotDir;
-      const vfsSceneDir = `/working/scenes/${robotName}`;
-
-      // 1. Ensure scene directory exists in VFS
-      this._ensureDir('/working/scenes');
-      this._ensureDir(vfsSceneDir);
-      if (robotConfig.meshDir) {
-        this._ensureDir(`${vfsSceneDir}/assets`);
-      }
-
-      // 2. Copy robot XML to scene directory (so include can find it)
-      const robotXmlResponse = await fetch(robotConfig.xmlPath);
-      if (!robotXmlResponse.ok) {
-        throw new Error(`Robot XML not found: ${robotConfig.xmlPath}`);
-      }
-      let robotXml = await robotXmlResponse.text();
-
-      // Fix meshdir to be relative to scene directory
-      if (robotConfig.meshDir) {
-        robotXml = robotXml.replace(
-          /meshdir="[^"]*"/g,
-          `meshdir="./assets/"`
-        );
-      }
-      this._writeToFS(`${vfsSceneDir}/${robotName}.xml`, robotXml);
-
-      // 3. Copy objects XML if exists
-      let hasObjects = false;
-      if (robotConfig.objectsPath) {
-        try {
-          const objectsResponse = await fetch(robotConfig.objectsPath);
-          if (objectsResponse.ok) {
-            const objectsXml = await objectsResponse.text();
-            this._writeToFS(`${vfsSceneDir}/objects.xml`, objectsXml);
-            hasObjects = true;
-          }
-        } catch (e) {
-          console.log('No objects file for robot:', robotName);
-        }
-      }
-
-      // 4. Copy asset files from /working/robots/{robotDir}/assets/ to scene directory
-      // (assets were already downloaded by downloadExampleScenesFolder)
-      if (robotConfig.meshDir) {
-        const srcMeshDir = `/working/robots/${robotDir}/assets`;
-        const dstMeshDir = `${vfsSceneDir}/assets`;
-
-        try {
-          const meshFiles = this.mujoco.FS.readdir(srcMeshDir);
-          console.log(`Copying ${meshFiles.length - 2} mesh files to ${dstMeshDir}`);
-          for (const file of meshFiles) {
-            if (file === '.' || file === '..') continue;
-            const srcPath = `${srcMeshDir}/${file}`;
-            const dstPath = `${dstMeshDir}/${file}`;
-            try {
-              const content = this.mujoco.FS.readFile(srcPath);
-              this.mujoco.FS.writeFile(dstPath, content);
-            } catch (e) {
-              console.error(`Failed to copy mesh ${file}:`, e);
-            }
-          }
-        } catch (e) {
-          console.error('Failed to read mesh directory:', e);
-        }
-      }
-
-      // 5. Load environment XML template
       const envConfig = SceneManager.ENV_CONFIGS[envName];
       if (!envConfig) {
         throw new Error(`Unknown environment: ${envName}`);
       }
 
+      const vfsSceneDir = `/working/scenes/${robotName}`;
+      this._ensureDir('/working/scenes');
+      this._ensureDir(vfsSceneDir);
+
+      // Copy robot files to scene directory
+      const hasObjects = await this._copyRobotToDir(robotName, vfsSceneDir);
+
+      // Load environment XML and create scene
       const envResponse = await fetch(envConfig.xmlPath);
       if (!envResponse.ok) {
         throw new Error(`Environment XML not found: ${envConfig.xmlPath}`);
       }
       const envXml = await envResponse.text();
 
-      // 6. Create scene XML with include
       const sceneName = `${envName}_${robotName}`;
       const sceneXml = this._createSceneXml(envXml, robotName, hasObjects, sceneName);
-
-      // Debug: output the scene XML
-      console.log('=== SCENE XML WITH INCLUDE ===');
-      console.log(sceneXml);
-      console.log('=== END SCENE XML ===');
-
-      // 7. Write scene XML to VFS
-      const sceneXmlPath = `${vfsSceneDir}/scene.xml`;
-      this._writeToFS(sceneXmlPath, sceneXml);
+      this._writeToFS(`${vfsSceneDir}/scene.xml`, sceneXml);
 
       this.currentEnv = envName;
       this.currentRobot = robotName;
@@ -306,17 +237,20 @@ export class SceneManager {
     }
 
     // Load environment XML
-    const envConfig = SceneManager.ENV_CONFIGS[envName];
+    // If in custom_spz mode, use 'basic' environment for the XML
+    const effectiveEnv = (envName === 'custom_spz') ? 'basic' : envName;
+    const envConfig = SceneManager.ENV_CONFIGS[effectiveEnv];
     const envResponse = await fetch(envConfig.xmlPath);
     const envXml = await envResponse.text();
 
     // Create scene XML with include
-    const sceneName = `${envName}_uploaded_${robotName}`;
+    const sceneName = `${effectiveEnv}_uploaded_${robotName}`;
     const sceneXml = this._createSceneXml(envXml, 'robot', hasObjects, sceneName);
 
     // Write scene XML
     this._writeToFS(`${vfsSceneDir}/scene.xml`, sceneXml);
 
+    // Keep custom_spz as currentEnv if that was the original environment
     this.currentEnv = envName;
     this.currentRobot = `uploaded_${robotName}`;
     this.scenePath = `scenes/uploaded_${robotName}/scene.xml`;
@@ -376,85 +310,78 @@ export class SceneManager {
    */
   async loadCustomSpz(spzFile, robotName = null) {
     console.log(`Loading custom SPZ: ${spzFile.name}`);
-
-    // Store the SPZ data
     this.customSpzData = await spzFile.arrayBuffer();
+    return this._setupCustomSpzScene(robotName);
+  }
 
-    // Use basic environment
-    const envName = 'basic';
-    const vfsSceneDir = `/working/scenes/custom_spz`;
+  /**
+   * Reload custom SPZ scene with a different robot
+   * Uses the already stored customSpzData
+   * @param {string} robotName - Robot to use (null for no robot)
+   * @returns {Promise<string>} - Path to scene XML
+   */
+  async loadCustomSpzWithRobot(robotName = null) {
+    if (!this.customSpzData) {
+      throw new Error('No custom SPZ data stored');
+    }
+    console.log(`Reloading custom SPZ with robot: ${robotName}`);
+    return this._setupCustomSpzScene(robotName);
+  }
 
-    // Create directories
-    this._ensureDir('/working/scenes');
-    this._ensureDir(vfsSceneDir);
-
+  /**
+   * Internal helper to setup custom SPZ scene with optional robot
+   * @param {string} robotName - Robot to use (null for no robot)
+   * @returns {Promise<string>} - Path to scene XML
+   */
+  async _setupCustomSpzScene(robotName) {
     // Load basic environment XML
-    const envConfig = SceneManager.ENV_CONFIGS[envName];
+    const envConfig = SceneManager.ENV_CONFIGS['basic'];
     const envResponse = await fetch(envConfig.xmlPath);
     const envXml = await envResponse.text();
 
-    if (robotName && SceneManager.ROBOT_CONFIGS[robotName]) {
-      // Load with robot
-      const robotConfig = SceneManager.ROBOT_CONFIGS[robotName];
-      const robotDir = robotConfig.robotDir;
+    // Handle uploaded robots - use their existing scene directory
+    if (this.isUploadedRobot(robotName)) {
+      const uploadedSceneDir = `/working/scenes/${robotName}`;
 
-      if (robotConfig.meshDir) {
-        this._ensureDir(`${vfsSceneDir}/assets`);
+      // Check if uploaded robot files still exist
+      try {
+        this.mujoco.FS.readFile(`${uploadedSceneDir}/robot.xml`);
+      } catch (e) {
+        throw new Error('Uploaded robot files not found. Please re-upload the robot.');
       }
 
-      // Copy robot XML
-      const robotXmlResponse = await fetch(robotConfig.xmlPath);
-      let robotXml = await robotXmlResponse.text();
-
-      if (robotConfig.meshDir) {
-        robotXml = robotXml.replace(/meshdir="[^"]*"/g, `meshdir="./assets/"`);
-      }
-      this._writeToFS(`${vfsSceneDir}/${robotName}.xml`, robotXml);
-
-      // Copy objects if exists
+      // Check if objects.xml exists
       let hasObjects = false;
-      if (robotConfig.objectsPath) {
-        try {
-          const objectsResponse = await fetch(robotConfig.objectsPath);
-          if (objectsResponse.ok) {
-            const objectsXml = await objectsResponse.text();
-            this._writeToFS(`${vfsSceneDir}/objects.xml`, objectsXml);
-            hasObjects = true;
-          }
-        } catch (e) {
-          console.log('No objects file for robot:', robotName);
-        }
+      try {
+        this.mujoco.FS.readFile(`${uploadedSceneDir}/objects.xml`);
+        hasObjects = true;
+      } catch (e) {
+        // No objects file
       }
 
-      // Copy mesh files
-      if (robotConfig.meshDir) {
-        const srcMeshDir = `/working/robots/${robotDir}/assets`;
-        const dstMeshDir = `${vfsSceneDir}/assets`;
-
-        try {
-          const meshFiles = this.mujoco.FS.readdir(srcMeshDir);
-          for (const file of meshFiles) {
-            if (file === '.' || file === '..') continue;
-            try {
-              const content = this.mujoco.FS.readFile(`${srcMeshDir}/${file}`);
-              this.mujoco.FS.writeFile(`${dstMeshDir}/${file}`, content);
-            } catch (e) {
-              // Ignore copy errors
-            }
-          }
-        } catch (e) {
-          console.error('Failed to read mesh directory:', e);
-        }
-      }
-
-      // Create scene XML with robot include
-      const sceneName = `custom_spz_${robotName}`;
-      const sceneXml = this._createSceneXml(envXml, robotName, hasObjects, sceneName);
-      this._writeToFS(`${vfsSceneDir}/scene.xml`, sceneXml);
+      // Create scene XML with environment and uploaded robot
+      const sceneXml = this._createSceneXml(envXml, 'robot', hasObjects, `custom_spz_${robotName}`);
+      this._writeToFS(`${uploadedSceneDir}/scene.xml`, sceneXml);
 
       this.currentRobot = robotName;
+      this.currentEnv = 'custom_spz';
+      this.scenePath = `scenes/${robotName}/scene.xml`;
+
+      console.log(`Custom SPZ scene with uploaded robot ready: ${this.scenePath}`);
+      return this.scenePath;
+    }
+
+    // Handle built-in robots
+    const vfsSceneDir = `/working/scenes/custom_spz`;
+    this._ensureDir('/working/scenes');
+    this._ensureDir(vfsSceneDir);
+
+    if (robotName && SceneManager.ROBOT_CONFIGS[robotName]) {
+      const hasObjects = await this._copyRobotToDir(robotName, vfsSceneDir);
+      const sceneXml = this._createSceneXml(envXml, robotName, hasObjects, `custom_spz_${robotName}`);
+      this._writeToFS(`${vfsSceneDir}/scene.xml`, sceneXml);
+      this.currentRobot = robotName;
     } else {
-      // No robot, just basic environment
       this._writeToFS(`${vfsSceneDir}/scene.xml`, envXml);
       this.currentRobot = null;
     }
@@ -462,8 +389,75 @@ export class SceneManager {
     this.currentEnv = 'custom_spz';
     this.scenePath = `scenes/custom_spz/scene.xml`;
 
-    console.log(`Custom SPZ scene loaded: ${this.scenePath}`);
+    console.log(`Custom SPZ scene ready: ${this.scenePath}`);
     return this.scenePath;
+  }
+
+  /**
+   * Copy robot files (XML, objects, meshes) to target directory
+   * @param {string} robotName - Robot name
+   * @param {string} targetDir - Target VFS directory
+   * @returns {Promise<boolean>} - Whether objects file exists
+   */
+  async _copyRobotToDir(robotName, targetDir) {
+    const robotConfig = SceneManager.ROBOT_CONFIGS[robotName];
+    const robotDir = robotConfig.robotDir;
+
+    if (robotConfig.meshDir) {
+      this._ensureDir(`${targetDir}/assets`);
+    }
+
+    // Copy robot XML
+    const robotXmlResponse = await fetch(robotConfig.xmlPath);
+    let robotXml = await robotXmlResponse.text();
+    if (robotConfig.meshDir) {
+      robotXml = robotXml.replace(/meshdir="[^"]*"/g, `meshdir="./assets/"`);
+    }
+    this._writeToFS(`${targetDir}/${robotName}.xml`, robotXml);
+
+    // Copy objects if exists
+    let hasObjects = false;
+    if (robotConfig.objectsPath) {
+      try {
+        const objectsResponse = await fetch(robotConfig.objectsPath);
+        if (objectsResponse.ok) {
+          const objectsXml = await objectsResponse.text();
+          this._writeToFS(`${targetDir}/objects.xml`, objectsXml);
+          hasObjects = true;
+        }
+      } catch (e) {
+        console.log('No objects file for robot:', robotName);
+      }
+    }
+
+    // Copy mesh files
+    if (robotConfig.meshDir) {
+      this._copyMeshFiles(`/working/robots/${robotDir}/assets`, `${targetDir}/assets`);
+    }
+
+    return hasObjects;
+  }
+
+  /**
+   * Copy mesh files from source to destination directory
+   * @param {string} srcDir - Source directory in VFS
+   * @param {string} dstDir - Destination directory in VFS
+   */
+  _copyMeshFiles(srcDir, dstDir) {
+    try {
+      const meshFiles = this.mujoco.FS.readdir(srcDir);
+      for (const file of meshFiles) {
+        if (file === '.' || file === '..') continue;
+        try {
+          const content = this.mujoco.FS.readFile(`${srcDir}/${file}`);
+          this.mujoco.FS.writeFile(`${dstDir}/${file}`, content);
+        } catch (e) {
+          // Ignore copy errors for individual files
+        }
+      }
+    } catch (e) {
+      console.error('Failed to read mesh directory:', e);
+    }
   }
 
   /**
@@ -478,6 +472,65 @@ export class SceneManager {
    */
   listRobots() {
     return Object.keys(SceneManager.ROBOT_CONFIGS);
+  }
+
+  /**
+   * Check if robot is an uploaded custom robot
+   * @param {string} robotName - Robot name to check
+   * @returns {boolean}
+   */
+  isUploadedRobot(robotName) {
+    return robotName && robotName.startsWith('uploaded_');
+  }
+
+  /**
+   * Reload uploaded robot scene
+   * Used when reloading a scene with an uploaded robot
+   * @param {string} envName - Environment name
+   * @returns {Promise<string>} - Path to scene XML
+   */
+  async reloadUploadedRobot(envName) {
+    if (!this.currentRobot || !this.isUploadedRobot(this.currentRobot)) {
+      throw new Error('No uploaded robot to reload');
+    }
+
+    const vfsSceneDir = `/working/scenes/${this.currentRobot}`;
+
+    // Check if scene files still exist
+    try {
+      this.mujoco.FS.readFile(`${vfsSceneDir}/scene.xml`);
+    } catch (e) {
+      throw new Error('Uploaded robot scene files not found. Please re-upload the robot.');
+    }
+
+    // If environment changed, recreate scene XML with new environment
+    const effectiveEnv = (envName === 'custom_spz') ? 'basic' : envName;
+    const envConfig = SceneManager.ENV_CONFIGS[effectiveEnv];
+    if (!envConfig) {
+      throw new Error(`Unknown environment: ${envName}`);
+    }
+
+    const envResponse = await fetch(envConfig.xmlPath);
+    const envXml = await envResponse.text();
+
+    // Check if objects.xml exists
+    let hasObjects = false;
+    try {
+      this.mujoco.FS.readFile(`${vfsSceneDir}/objects.xml`);
+      hasObjects = true;
+    } catch (e) {
+      // No objects file
+    }
+
+    // Recreate scene XML with environment
+    const sceneName = `${effectiveEnv}_${this.currentRobot}`;
+    const sceneXml = this._createSceneXml(envXml, 'robot', hasObjects, sceneName);
+    this._writeToFS(`${vfsSceneDir}/scene.xml`, sceneXml);
+
+    this.currentEnv = envName;
+    this.scenePath = `scenes/${this.currentRobot}/scene.xml`;
+
+    return this.scenePath;
   }
 }
 

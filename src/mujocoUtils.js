@@ -42,8 +42,29 @@ export async function reloadFunc() {
   // Reload the current scene
   const envName = this.params.environment || 'tabletop';
   const robotName = this.params.robot || 'xlerobot';
+  const sceneManager = getSceneManager(this.mujoco);
 
-  await loadModularScene(this, envName, robotName);
+  this.scene.remove(this.scene.getObjectByName("MuJoCo Root"));
+
+  // Handle custom SPZ mode
+  if (sceneManager.hasCustomSpz() && envName === 'custom_spz') {
+    await sceneManager.loadCustomSpzWithRobot(robotName);
+  } else if (sceneManager.isUploadedRobot(robotName)) {
+    // Handle uploaded robot reload
+    await sceneManager.reloadUploadedRobot(envName);
+  } else {
+    // Normal robot reload
+    await sceneManager.loadModularScene(envName, robotName);
+  }
+
+  this.params.scene = sceneManager.scenePath;
+  [this.model, this.data, this.bodies, this.lights] =
+    await loadSceneFromURL(this.mujoco, sceneManager.scenePath, this);
+  this.mujoco.mj_forward(this.model, this.data);
+
+  for (let i = 0; i < this.updateGUICallbacks.length; i++) {
+    this.updateGUICallbacks[i](this.model, this.data, this.params);
+  }
 }
 
 /** @param {MuJoCoDemo} parentContext*/
@@ -61,9 +82,75 @@ export function setupGUI(parentContext) {
   parentContext.params.environment = parentContext.params.environment || 'tabletop';
   parentContext.params.robot = parentContext.params.robot || 'xlerobot';
 
+  // Helper to remove old MuJoCo scene
+  const removeOldScene = () => {
+    const oldMujocoRoot = parentContext.scene.getObjectByName("MuJoCo Root");
+    if (oldMujocoRoot) {
+      parentContext.scene.remove(oldMujocoRoot);
+    }
+  };
+
+  // Helper to load scene and run callbacks
+  const loadSceneAndUpdate = async (scenePath, robotName) => {
+    parentContext.params.scene = scenePath;
+    [parentContext.model, parentContext.data, parentContext.bodies, parentContext.lights] =
+      await loadSceneFromURL(parentContext.mujoco, scenePath, parentContext);
+    parentContext.mujoco.mj_forward(parentContext.model, parentContext.data);
+
+    // Run update callbacks
+    for (let i = 0; i < parentContext.updateGUICallbacks.length; i++) {
+      parentContext.updateGUICallbacks[i](parentContext.model, parentContext.data, parentContext.params);
+    }
+
+    // Setup keyboard control
+    if (keyboardController.hasConfig(robotName)) {
+      keyboardController.enable(robotName, parentContext.model, parentContext.data, parentContext.mujoco);
+    }
+  };
+
+  // Helper to load custom SPZ 3DGS
+  const loadCustomSpz3DGS = async (spzData) => {
+    const blob = new Blob([spzData], { type: 'application/octet-stream' });
+    const blobUrl = URL.createObjectURL(blob);
+
+    if (parentContext.gsController && parentContext.gsController.enabled) {
+      parentContext.gsController.disable();
+    }
+    if (parentContext.gsController) {
+      await parentContext.gsController.enable(blobUrl);
+    }
+  };
+
   // Scene loading function for modular scenes
   const loadScene = async () => {
-    await loadModularScene(parentContext, parentContext.params.environment, parentContext.params.robot);
+    const sceneManager = getSceneManager(parentContext.mujoco);
+    const envName = parentContext.params.environment;
+    const robotName = parentContext.params.robot;
+
+    // Custom SPZ mode: reload with new robot
+    if (sceneManager.hasCustomSpz() && envName === 'custom_spz') {
+      removeOldScene();
+      await sceneManager.loadCustomSpzWithRobot(robotName);
+      await loadSceneAndUpdate(sceneManager.scenePath, robotName);
+      await loadCustomSpz3DGS(sceneManager.getCustomSpzData());
+    } else {
+      // Clear custom SPZ if switching to a normal environment
+      if (sceneManager.hasCustomSpz()) {
+        sceneManager.clearCustomSpz();
+        if (parentContext.gsController && parentContext.gsController.enabled) {
+          parentContext.gsController.disable();
+        }
+      }
+
+      // Handle uploaded robot or normal robot
+      if (sceneManager.isUploadedRobot(robotName)) {
+        removeOldScene();
+        await sceneManager.reloadUploadedRobot(envName);
+        await loadSceneAndUpdate(sceneManager.scenePath, robotName);
+      } else {
+        await loadModularScene(parentContext, envName, robotName);
+      }
+    }
   };
 
   // Add environment selection dropdown
@@ -82,7 +169,6 @@ export function setupGUI(parentContext) {
   // Add upload robot button
   const uploadRobotBtn = {
     uploadRobot: () => {
-      // Create hidden file input for folder upload
       const input = document.createElement('input');
       input.type = 'file';
       input.webkitdirectory = true;
@@ -93,29 +179,17 @@ export function setupGUI(parentContext) {
 
         try {
           console.log('Uploading robot folder with', files.length, 'files');
-
-          // Remove the old scene first
-          const oldMujocoRoot = parentContext.scene.getObjectByName("MuJoCo Root");
-          if (oldMujocoRoot) {
-            parentContext.scene.remove(oldMujocoRoot);
-          }
+          removeOldScene();
 
           const sceneManager = getSceneManager(parentContext.mujoco);
           const scenePath = await sceneManager.loadUploadedRobot(files, parentContext.params.environment);
-
-          // Update params to reflect the uploaded robot
-          parentContext.params.scene = scenePath;
           parentContext.params.robot = sceneManager.currentRobot;
 
-          // Load the new scene
-          [parentContext.model, parentContext.data, parentContext.bodies, parentContext.lights] =
-            await loadSceneFromURL(parentContext.mujoco, scenePath, parentContext);
+          await loadSceneAndUpdate(scenePath, sceneManager.currentRobot);
 
-          parentContext.mujoco.mj_forward(parentContext.model, parentContext.data);
-
-          // Run update callbacks
-          for (let i = 0; i < parentContext.updateGUICallbacks.length; i++) {
-            parentContext.updateGUICallbacks[i](parentContext.model, parentContext.data, parentContext.params);
+          // If in custom SPZ mode, reload the 3DGS
+          if (sceneManager.hasCustomSpz()) {
+            await loadCustomSpz3DGS(sceneManager.getCustomSpzData());
           }
 
           console.log('Custom robot loaded successfully');
@@ -132,7 +206,6 @@ export function setupGUI(parentContext) {
   // Add upload SPZ button for custom 3DGS scenes
   const uploadSpzBtn = {
     uploadSpz: () => {
-      // Create hidden file input for SPZ upload
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = '.spz';
@@ -142,56 +215,18 @@ export function setupGUI(parentContext) {
 
         try {
           console.log('Uploading SPZ file:', file.name);
-
-          // Remove the old scene first
-          const oldMujocoRoot = parentContext.scene.getObjectByName("MuJoCo Root");
-          if (oldMujocoRoot) {
-            parentContext.scene.remove(oldMujocoRoot);
-          }
+          removeOldScene();
 
           const sceneManager = getSceneManager(parentContext.mujoco);
-
-          // Load custom SPZ with current robot (or no robot)
           const robotName = parentContext.params.robot;
           const scenePath = await sceneManager.loadCustomSpz(file, robotName);
 
-          // Update params
-          parentContext.params.scene = scenePath;
           parentContext.params.environment = 'custom_spz';
+          await loadSceneAndUpdate(scenePath, robotName);
 
-          // Load the new scene
-          [parentContext.model, parentContext.data, parentContext.bodies, parentContext.lights] =
-            await loadSceneFromURL(parentContext.mujoco, scenePath, parentContext);
-
-          parentContext.mujoco.mj_forward(parentContext.model, parentContext.data);
-
-          // Reload 3DGS with custom SPZ data
           if (sceneManager.hasCustomSpz()) {
-            const spzData = sceneManager.getCustomSpzData();
-            // Create blob URL from ArrayBuffer
-            const blob = new Blob([spzData], { type: 'application/octet-stream' });
-            const blobUrl = URL.createObjectURL(blob);
-
-            // Disable existing GS if any
-            if (parentContext.gsController && parentContext.gsController.enabled) {
-              parentContext.gsController.disable();
-            }
-
-            // Enable with custom SPZ blob URL
-            if (parentContext.gsController) {
-              await parentContext.gsController.enable(blobUrl);
-              console.log('Custom 3DGS loaded from uploaded SPZ');
-            }
-          }
-
-          // Run update callbacks
-          for (let i = 0; i < parentContext.updateGUICallbacks.length; i++) {
-            parentContext.updateGUICallbacks[i](parentContext.model, parentContext.data, parentContext.params);
-          }
-
-          // Setup keyboard control if robot has config
-          if (keyboardController.hasConfig(robotName)) {
-            keyboardController.enable(robotName, parentContext.model, parentContext.data, parentContext.mujoco);
+            await loadCustomSpz3DGS(sceneManager.getCustomSpzData());
+            console.log('Custom 3DGS loaded from uploaded SPZ');
           }
 
           console.log('Custom SPZ scene loaded successfully');
