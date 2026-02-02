@@ -122,28 +122,28 @@ export class SO101Controller extends BaseController {
     // Arm Control
     // ========================================
 
-    // Shoulder rotation (A/D)
+    // Shoulder rotation (A/D) - A: left, D: right
     if (keyStates['KeyA']) {
-      this.state.targetJoints[0] += this.JOINT_STEP;
-    }
-    if (keyStates['KeyD']) {
       this.state.targetJoints[0] -= this.JOINT_STEP;
     }
+    if (keyStates['KeyD']) {
+      this.state.targetJoints[0] += this.JOINT_STEP;
+    }
 
-    // End effector Y position (W/S)
+    // End effector X position (W/S) - W: forward, S: backward
     if (keyStates['KeyW']) {
-      this.state.eePos[1] += this.EE_STEP;
-    }
-    if (keyStates['KeyS']) {
-      this.state.eePos[1] -= this.EE_STEP;
-    }
-
-    // End effector X position (Q/E)
-    if (keyStates['KeyQ']) {
       this.state.eePos[0] += this.EE_STEP;
     }
-    if (keyStates['KeyE']) {
+    if (keyStates['KeyS']) {
       this.state.eePos[0] -= this.EE_STEP;
+    }
+
+    // End effector Y position (Q/E) - Q: up, E: down
+    if (keyStates['KeyQ']) {
+      this.state.eePos[1] += this.EE_STEP;
+    }
+    if (keyStates['KeyE']) {
+      this.state.eePos[1] -= this.EE_STEP;
     }
 
     // Pitch adjustment (R/F)
@@ -223,7 +223,7 @@ export class SO101Controller extends BaseController {
    */
   getDescription() {
     return [
-      'Rotation: A/D | EE Y: W/S | EE X: Q/E',
+      'Rotation: A/D | Forward/Back: W/S | Up/Down: Q/E',
       'Pitch: R/F | Wrist Roll: Z/C',
       'Gripper: V Toggle | Reset: X'
     ].join('\n');
