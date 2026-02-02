@@ -93,7 +93,7 @@
   </default>
 
   <worldbody>
-    <light name="spotlight" mode="targetbodycom" target="torso" diffuse=".3 .3 .3" specular="0 0 0" pos="0 -6 4" cutoff="30"/>
+    
     <body name="torso" pos="0 0 1.282" euler="0 0 1.57" childclass="body">
       <light name="top" pos="1 0 2" mode="trackcom"/>
       <camera name="back" pos="-3 0 1" xyaxes="0 -1 0 1 0 2" mode="trackcom"/>
