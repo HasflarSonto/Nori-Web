@@ -42,7 +42,7 @@ Load and Run MuJoCo 3.3.8 Models using JavaScript and the official MuJoCo WebAss
 ### 🤖 Supported Robots
 
 #### **XLeRobot** - Dual-Arm Mobile Manipulator
-- **DOF**: 2 (base) + 12 (dual 6-DOF arms) + 2 (grippers) + 2 (head)
+- **DOF**: 2 (base) + 10 (dual 5-DOF arms) + 2 (grippers) + 2 (head)
 - **Control Method**: Inverse kinematics with keyboard teleoperation
 - **Actuators**: STS3215 servos (SO-Arm101 specification)
 - **Keyboard Mapping**:
@@ -128,6 +128,7 @@ mujoco.mj_applyFT(model, data, [fx, fy, fz], [tx, ty, tz], [px, py, pz], bodyId,
 data.delete();
 model.delete();
 ```
+
 
 
 
