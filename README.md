@@ -32,6 +32,9 @@ Load and Run MuJoCo 3.3.8 Models using JavaScript and the official MuJoCo WebAss
 
 - **Mouse Interaction**: Click and drag any physics object in the scene
 
+- **Import any robot**: By uploading the whole folder (without the scene.xml)
+- <img width="1041" height="738" alt="image" src="https://github.com/user-attachments/assets/908d6638-2ef9-46a5-97db-3ce7606b2f67" />
+
 
 ### 🤖 Supported Robots
 
@@ -122,4 +125,5 @@ mujoco.mj_applyFT(model, data, [fx, fy, fz], [tx, ty, tz], [px, py, pz], bodyId,
 data.delete();
 model.delete();
 ```
+
 
