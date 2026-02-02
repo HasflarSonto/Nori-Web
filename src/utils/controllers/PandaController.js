@@ -38,13 +38,15 @@ export class PandaController extends BaseController {
     // Joint velocity limits (rad/frame)
     this.MAX_JOINT_VEL = 0.05;
 
-    // Gripper settings (actuator8 has ctrlrange 0-0.04, position control)
+    // Gripper settings (two finger actuators, each with ctrlrange 0-0.04)
     this.GRIPPER_OPEN = 0.04;
     this.GRIPPER_CLOSED = 0;
 
     // Panda joint indices (7 DOF arm)
     this.ARM_JOINT_INDICES = [0, 1, 2, 3, 4, 5, 6];
-    this.GRIPPER_ACTUATOR_IDX = 7;
+    // Two separate finger actuators (indices 7 and 8)
+    this.GRIPPER_ACTUATOR_IDX_1 = 7;
+    this.GRIPPER_ACTUATOR_IDX_2 = 8;
 
     // Panda joint limits (radians) - from URDF
     this.JOINT_LIMITS_MIN = [-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973];
@@ -562,8 +564,10 @@ export class PandaController extends BaseController {
       data.qfrc_applied[jointIdx] = data.qfrc_bias[jointIdx];
     }
 
-    // Gripper control
-    data.ctrl[this.GRIPPER_ACTUATOR_IDX] = this.state.gripperOpen ? this.GRIPPER_OPEN : this.GRIPPER_CLOSED;
+    // Gripper control - both fingers move together
+    const gripperValue = this.state.gripperOpen ? this.GRIPPER_OPEN : this.GRIPPER_CLOSED;
+    data.ctrl[this.GRIPPER_ACTUATOR_IDX_1] = gripperValue;
+    data.ctrl[this.GRIPPER_ACTUATOR_IDX_2] = gripperValue;
   }
 
   /**
