@@ -93,11 +93,21 @@ export function setupGUI(parentContext) {
 
         try {
           console.log('Uploading robot folder with', files.length, 'files');
+
+          // Remove the old scene first
+          const oldMujocoRoot = parentContext.scene.getObjectByName("MuJoCo Root");
+          if (oldMujocoRoot) {
+            parentContext.scene.remove(oldMujocoRoot);
+          }
+
           const sceneManager = getSceneManager(parentContext.mujoco);
           const scenePath = await sceneManager.loadUploadedRobot(files, parentContext.params.environment);
 
-          // Load the merged scene
+          // Update params to reflect the uploaded robot
           parentContext.params.scene = scenePath;
+          parentContext.params.robot = sceneManager.currentRobot;
+
+          // Load the new scene
           [parentContext.model, parentContext.data, parentContext.bodies, parentContext.lights] =
             await loadSceneFromURL(parentContext.mujoco, scenePath, parentContext);
 
