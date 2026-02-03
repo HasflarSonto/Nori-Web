@@ -39,7 +39,8 @@ Load and Run MuJoCo 3.3.8 Models using JavaScript and the official MuJoCo WebAss
   - If you upload your own 3DGS file, there will not be any collision
   - You can contribute to this project by adding a 3DGS scene along with .xml file for collision setup
   
-<img width="1674" height="753" alt="image" src="https://github.com/user-attachments/assets/ec352e47-194c-4a5b-9da2-4608a23e3aa8" />
+<img width="1659" height="558" alt="image" src="https://github.com/user-attachments/assets/50807972-784d-4fa0-a4b3-a2920dff86c9" />
+
 
 
 Easiest way to find collision boxes' coordinate: adding boxes in [the studio in Marble](https://marble.worldlabs.ai/projects) and give the bounding boxes info to AI to generate a collision.xml
@@ -144,6 +145,7 @@ model.delete();
 ## 🙏 Acknowledgements
 
 This project is built based on [mujoco-wasm](https://github.com/zalo/mujoco_wasm) and [sparkjs](https://sparkjs.dev/).
+
 
 
 
