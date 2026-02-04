@@ -98,10 +98,6 @@ Easiest way to find collision boxes' coordinate: adding boxes in [the studio in 
 - **Control Method**: Joint-level PD control
 - **Interaction**: Mouse drag support for direct manipulation
 
-## TODO
-
-- Add simple RL policy deployments (humanoid/dog walking/running, arms/mobile robot picking)
-
 ## JavaScript API
 
 ```javascript
@@ -149,6 +145,7 @@ model.delete();
 ## 🙏 Acknowledgements
 
 This project is built based on [mujoco-wasm](https://github.com/zalo/mujoco_wasm), [sparkjs](https://sparkjs.dev/), and [human policy viewer](https://github.com/Axellwppr/humanoid-policy-viewer).
+
 
 
 
