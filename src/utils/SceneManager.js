@@ -61,6 +61,11 @@ export class SceneManager {
       spzPath: './assets/environments/tabletop/scene.spz',
       description: 'Tabletop manipulation environment'
     },
+    'UFC': {
+      xmlPath: './assets/environments/UFC/scene.xml',
+      spzPath: './assets/environments/UFC/scene.spz',
+      description: 'UFC arena environment'
+    },
     'basic': {
       xmlPath: './assets/environments/basic.xml',
       spzPath: null,

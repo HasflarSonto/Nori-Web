@@ -330,6 +330,23 @@ export class MuJoCoDemo {
           // Clear old perturbations, apply new ones.
           for (let i = 0; i < this.data.qfrc_applied.length; i++) { this.data.qfrc_applied[i] = 0.0; }
 
+          // Apply drag forces (same as normal mode)
+          let dragged = this.dragStateManager.physicsObject;
+          if (dragged && dragged.bodyID) {
+            for (let b = 0; b < this.model.nbody; b++) {
+              if (this.bodies[b]) {
+                getPosition  (this.data.xpos , b, this.bodies[b].position);
+                getQuaternion(this.data.xquat, b, this.bodies[b].quaternion);
+                this.bodies[b].updateWorldMatrix();
+              }
+            }
+            let bodyID = dragged.bodyID;
+            this.dragStateManager.update();
+            let force = toMujocoPos(this.dragStateManager.currentWorld.clone().sub(this.dragStateManager.worldHit).multiplyScalar(this.model.body_mass[bodyID] * 250));
+            let point = toMujocoPos(this.dragStateManager.worldHit.clone());
+            this.mujoco.mj_applyFT(this.model, this.data, [force.x, force.y, force.z], [0, 0, 0], [point.x, point.y, point.z], bodyID, this.data.qfrc_applied);
+          }
+
           this.mujoco.mj_step(this.model, this.data);
           this.policySubstep++;
           this.mujoco_time += timestep * 1000.0;
@@ -492,10 +509,10 @@ class GaussianSplatController {
       this.scene.add(this.splatMesh);
       console.log('SplatMesh added to scene');
 
-      // Save and clear scene background for transparent compositing
+      // Save and set dark gray background for 3DGS
       this.savedBackground = this.scene.background;
       this.savedFog = this.scene.fog;
-      this.scene.background = null;
+      this.scene.background = new THREE.Color(0.15, 0.15, 0.15);  // Dark gray
       this.scene.fog = null;
 
       // Hide floor/ground meshes to show GS environment
@@ -644,7 +661,13 @@ gsToggleBtn.onclick = async () => {
   gsToggleBtn.textContent = '⏳ Loading...';
 
   try {
-    const enabled = await gsController.toggle('./assets/environments/tabletop/scene.spz');
+    // Get current environment's spz path from SceneManager
+    const spzPath = demo.sceneManager.getSpzPath();
+    if (!spzPath) {
+      throw new Error('No 3DGS scene available for current environment');
+    }
+
+    const enabled = await gsController.toggle(spzPath);
 
     gsToggleBtn.textContent = enabled ? 'Disable 3DGS' : 'Enable 3DGS';
     gsToggleBtn.style.background = enabled

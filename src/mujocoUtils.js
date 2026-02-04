@@ -222,6 +222,15 @@ export async function setupGUI(parentContext) {
         } else {
           await loadModularScene(parentContext, envName, robotName);
         }
+
+        // If 3DGS was enabled, reload with new environment's spz
+        if (parentContext.gsController && parentContext.gsController.enabled) {
+          parentContext.gsController.disable();
+          const spzPath = sceneManager.getSpzPath();
+          if (spzPath) {
+            await parentContext.gsController.enable(spzPath);
+          }
+        }
       }
     } finally {
       hideLoading();
@@ -230,7 +239,8 @@ export async function setupGUI(parentContext) {
 
   // Add environment selection dropdown
   parentContext.gui.add(parentContext.params, 'environment', {
-    "Tabletop": "tabletop"
+    "Tabletop": "tabletop",
+    "UFC": "UFC"
   }).name('Environment').onChange(loadScene);
 
   // Add robot selection dropdown
