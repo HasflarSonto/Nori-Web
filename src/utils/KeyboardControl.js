@@ -2,7 +2,7 @@
  * Keyboard Control Module for MuJoCo Scenes
  *
  * Provides configurable keyboard controls for different robots.
- * Supports both simple control mappings and complex controllers with IK.
+ * 统一使用异步 step() 模式，每个控制周期调用一次。
  */
 
 import { XLeRobotController } from './controllers/XLeRobotController.js';
@@ -16,18 +16,15 @@ import { SO101Controller } from './controllers/SO101Controller.js';
 // Robot-specific control configurations (keyed by robot name)
 const ROBOT_CONFIGS = {
   'xlerobot': {
-    type: 'custom',
-    controller: new XLeRobotController(),
+    controller: XLeRobotController,
     description: 'XLeRobot Dual-Arm Control'
   },
   'SO101': {
-    type: 'custom',
-    controller: new SO101Controller(),
+    controller: SO101Controller,
     description: 'SO101 Single-Arm Control'
   },
   'panda': {
-    type: 'custom',
-    controller: new PandaController(),
+    controller: PandaController,
     description: 'Panda DLS IK Control'
   }
   // humanoid has no keyboard control
@@ -43,8 +40,8 @@ export class KeyboardController {
     this.config = null;
     this.model = null;
     this.data = null;
+    this.mujoco = null;
     this.keyStates = {};
-    this.actuatorIndices = {};
     this.customController = null;
 
     // Bind event handlers
@@ -75,10 +72,10 @@ export class KeyboardController {
    * @param {string} robotName - The robot name
    * @param {object} model - MuJoCo model
    * @param {object} data - MuJoCo data
-   * @param {object} mujoco - MuJoCo WASM module (optional, needed for IK)
-   * @returns {boolean} - Whether enabling was successful
+   * @param {object} mujoco - MuJoCo WASM module
+   * @returns {Promise<boolean>} - Whether enabling was successful
    */
-  enable(robotName, model, data, mujoco = null) {
+  async enable(robotName, model, data, mujoco) {
     // Disable any existing control first
     this.disable();
 
@@ -93,39 +90,20 @@ export class KeyboardController {
     this.data = data;
     this.mujoco = mujoco;
 
-    // Handle custom controller
-    if (config.type === 'custom' && config.controller) {
-      this.customController = config.controller;
-      this.customController.initialize(model, data, mujoco);
+    // Create and initialize controller
+    if (config.controller) {
+      const ControllerClass = config.controller;
+      this.customController = new ControllerClass();
+      await this.customController.initialize(model, data, mujoco);
 
-      // Initialize key states for custom controller
+      // Initialize key states for controller
       this.keyStates = {};
       for (const key of this.customController.getControlKeys()) {
         this.keyStates[key] = false;
       }
     } else {
-      // Handle simple control mapping (legacy support)
-      this.customController = null;
-
-      // Build actuator name to index mapping
-      const textDecoder = new TextDecoder("utf-8");
-      const nullChar = textDecoder.decode(new ArrayBuffer(1));
-
-      this.actuatorIndices = {};
-      for (let i = 0; i < model.nu; i++) {
-        const name = textDecoder.decode(
-          model.names.subarray(model.name_actuatoradr[i])
-        ).split(nullChar)[0];
-        this.actuatorIndices[name] = i;
-      }
-
-      // Initialize key states
-      this.keyStates = {};
-      if (config.controls) {
-        for (const ctrl of config.controls) {
-          this.keyStates[ctrl.key] = false;
-        }
-      }
+      console.warn(`No controller class for robot: ${robotName}`);
+      return false;
     }
 
     // Add event listeners
@@ -152,55 +130,17 @@ export class KeyboardController {
     this.data = null;
     this.mujoco = null;
     this.keyStates = {};
-    this.actuatorIndices = {};
     this.customController = null;
   }
 
   /**
-   * Update actuator controls based on current key states
-   * Call this in the render loop
+   * 异步控制步进 - 每个控制周期调用一次
+   * @returns {Promise<void>}
    */
-  update() {
-    if (!this.enabled || !this.config || !this.data) return;
+  async step() {
+    if (!this.enabled || !this.customController || !this.data) return;
 
-    // Use custom controller if available
-    if (this.customController) {
-      this.customController.update(this.keyStates, this.model, this.data, this.mujoco);
-      return;
-    }
-
-    // Legacy: simple control mapping
-    if (!this.config.controls) return;
-
-    // Group controls by actuator to handle opposing keys
-    const actuatorValues = {};
-
-    for (const ctrl of this.config.controls) {
-      const actuatorIdx = this.actuatorIndices[ctrl.actuator];
-      if (actuatorIdx === undefined) continue;
-
-      if (!(ctrl.actuator in actuatorValues)) {
-        actuatorValues[ctrl.actuator] = 0;
-      }
-
-      if (this.keyStates[ctrl.key]) {
-        actuatorValues[ctrl.actuator] += ctrl.value;
-      }
-    }
-
-    // Apply values to data.ctrl
-    for (const [actuatorName, value] of Object.entries(actuatorValues)) {
-      const idx = this.actuatorIndices[actuatorName];
-      if (idx !== undefined) {
-        let clampedValue = value;
-        if (this.model.actuator_ctrllimited[idx]) {
-          const min = this.model.actuator_ctrlrange[2 * idx];
-          const max = this.model.actuator_ctrlrange[2 * idx + 1];
-          clampedValue = Math.max(min, Math.min(max, value));
-        }
-        this.data.ctrl[idx] = clampedValue;
-      }
-    }
+    await this.customController.step(this.keyStates, this.model, this.data, this.mujoco);
   }
 
   /**

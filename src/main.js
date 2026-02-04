@@ -7,6 +7,7 @@ import { setupGUI, downloadDefaultRobot, loadSceneFromURL, loadModularScene, dra
 import { keyboardController } from './utils/KeyboardControl.js';
 import   load_mujoco        from '../node_modules/mujoco-js/dist/mujoco_wasm.js';
 import { getSceneManager } from './utils/SceneManager.js';
+import { policyController } from './policy/PolicyController.js';
 
 // ===== 新增：后处理相关 =====
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -49,6 +50,12 @@ export class MuJoCoDemo {
     this.tmpVec  = new THREE.Vector3();
     this.tmpQuat = new THREE.Quaternion();
     this.updateGUICallbacks = [];
+
+    // Policy control state
+    this.policyEnabled = false;
+    this.policyStepPending = false;
+    this.policyDecimation = 0;
+    this.policySubstep = 0;
 
     this.container = document.createElement( 'div' );
     this.container.style.cssText = 'position: relative; width: 100%; height: 100%; z-index: 1;';
@@ -225,7 +232,8 @@ export class MuJoCoDemo {
     await loadModularScene(this, this.params.environment, this.params.robot);
 
     this.gui = new GUI();
-    setupGUI(this);
+    await setupGUI(this);
+
   }
 
   onWindowResize() {
@@ -236,6 +244,50 @@ export class MuJoCoDemo {
     // ===== 新增：更新后处理尺寸 =====
     this.composer.setSize(window.innerWidth, window.innerHeight);
     this.outlinePass.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
+  }
+
+  // ===== 策略控制方法 =====
+  async loadPolicy(policyPath) {
+    if (!this.model || !this.data) {
+      console.error('Cannot load policy: MuJoCo model not loaded');
+      return false;
+    }
+    try {
+      await policyController.loadPolicy(policyPath, this.model, this.data, this.mujoco);
+      this.policyEnabled = true;
+      this.policyDecimation = policyController.decimation;
+      this.policySubstep = this.policyDecimation; // Trigger first policy step
+      console.log('Policy loaded and enabled');
+      return true;
+    } catch (err) {
+      console.error('Failed to load policy:', err);
+      return false;
+    }
+  }
+
+  disablePolicy() {
+    this.policyEnabled = false;
+    policyController.disable();
+    console.log('Policy disabled');
+  }
+
+  resetPolicy() {
+    if (policyController.enabled) {
+      policyController.reset();
+      this.policySubstep = this.policyDecimation; // Trigger new policy step
+    }
+  }
+
+  getAvailableMotions() {
+    return policyController.getAvailableMotions();
+  }
+
+  requestMotion(name) {
+    return policyController.requestMotion(name);
+  }
+
+  getPlaybackState() {
+    return policyController.getPlaybackState();
   }
 
   render(timeMS) {
@@ -250,67 +302,97 @@ export class MuJoCoDemo {
     if (!this.params["paused"]) {
       let timestep = this.model.opt.timestep;
       if (timeMS - this.mujoco_time > 35.0) { this.mujoco_time = timeMS; }
-      while (this.mujoco_time < timeMS) {
 
-        // Jitter the control state with gaussian random noise
-        if (this.params["ctrlnoisestd"] > 0.0) {
-          let rate  = Math.exp(-timestep / Math.max(1e-10, this.params["ctrlnoiserate"]));
-          let scale = this.params["ctrlnoisestd"] * Math.sqrt(1 - rate * rate);
-          let currentCtrl = this.data.ctrl;
-          for (let i = 0; i < currentCtrl.length; i++) {
-            currentCtrl[i] = rate * currentCtrl[i] + scale * standardNormal();
-            this.params["Actuator " + i] = currentCtrl[i];
+      // Policy control mode
+      if (this.policyEnabled && policyController.enabled) {
+        while (this.mujoco_time < timeMS) {
+          // Check if we need a new policy step
+          if (this.policySubstep >= this.policyDecimation) {
+            // Run policy inference (async, but we handle it)
+            if (!this.policyStepPending) {
+              this.policyStepPending = true;
+              policyController.step().then((decimation) => {
+                this.policyDecimation = decimation;
+                this.policySubstep = 0;
+                this.policyStepPending = false;
+              }).catch((err) => {
+                console.error('Policy step error:', err);
+                this.policyStepPending = false;
+              });
+            }
+            // Skip physics while waiting for policy
+            break;
           }
-        }
 
-        // Clear old perturbations, apply new ones.
-        for (let i = 0; i < this.data.qfrc_applied.length; i++) { this.data.qfrc_applied[i] = 0.0; }
-        let dragged = this.dragStateManager.physicsObject;
-        if (dragged && dragged.bodyID) {
-          for (let b = 0; b < this.model.nbody; b++) {
-            if (this.bodies[b]) {
-              getPosition  (this.data.xpos , b, this.bodies[b].position);
-              getQuaternion(this.data.xquat, b, this.bodies[b].quaternion);
-              this.bodies[b].updateWorldMatrix();
+          // Apply PD control from policy
+          policyController.applyControl();
+
+          // Clear old perturbations, apply new ones.
+          for (let i = 0; i < this.data.qfrc_applied.length; i++) { this.data.qfrc_applied[i] = 0.0; }
+
+          this.mujoco.mj_step(this.model, this.data);
+          this.policySubstep++;
+          this.mujoco_time += timestep * 1000.0;
+        }
+      } else {
+        // Normal keyboard control mode
+        while (this.mujoco_time < timeMS) {
+
+          // Jitter the control state with gaussian random noise
+          if (this.params["ctrlnoisestd"] > 0.0) {
+            let rate  = Math.exp(-timestep / Math.max(1e-10, this.params["ctrlnoiserate"]));
+            let scale = this.params["ctrlnoisestd"] * Math.sqrt(1 - rate * rate);
+            let currentCtrl = this.data.ctrl;
+            for (let i = 0; i < currentCtrl.length; i++) {
+              currentCtrl[i] = rate * currentCtrl[i] + scale * standardNormal();
+              this.params["Actuator " + i] = currentCtrl[i];
             }
           }
-          let bodyID = dragged.bodyID;
-          this.dragStateManager.update(); // Update the world-space force origin
-          let force = toMujocoPos(this.dragStateManager.currentWorld.clone().sub(this.dragStateManager.worldHit).multiplyScalar(this.model.body_mass[bodyID] * 250));
-          let point = toMujocoPos(this.dragStateManager.worldHit.clone());
-          mujoco.mj_applyFT(this.model, this.data, [force.x, force.y, force.z], [0, 0, 0], [point.x, point.y, point.z], bodyID, this.data.qfrc_applied);
 
-          // TODO: Apply pose perturbations (mocap bodies only).
+          // Clear old perturbations, apply new ones.
+          for (let i = 0; i < this.data.qfrc_applied.length; i++) { this.data.qfrc_applied[i] = 0.0; }
+          let dragged = this.dragStateManager.physicsObject;
+          if (dragged && dragged.bodyID) {
+            for (let b = 0; b < this.model.nbody; b++) {
+              if (this.bodies[b]) {
+                getPosition  (this.data.xpos , b, this.bodies[b].position);
+                getQuaternion(this.data.xquat, b, this.bodies[b].quaternion);
+                this.bodies[b].updateWorldMatrix();
+              }
+            }
+            let bodyID = dragged.bodyID;
+            this.dragStateManager.update();
+            let force = toMujocoPos(this.dragStateManager.currentWorld.clone().sub(this.dragStateManager.worldHit).multiplyScalar(this.model.body_mass[bodyID] * 250));
+            let point = toMujocoPos(this.dragStateManager.worldHit.clone());
+            this.mujoco.mj_applyFT(this.model, this.data, [force.x, force.y, force.z], [0, 0, 0], [point.x, point.y, point.z], bodyID, this.data.qfrc_applied);
+          }
+
+          // Update keyboard controls
+          keyboardController.step();
+
+          this.mujoco.mj_step(this.model, this.data);
+
+          this.mujoco_time += timestep * 1000.0;
         }
-
-        // Update keyboard controls
-        keyboardController.update();
-
-        mujoco.mj_step(this.model, this.data);
-
-        this.mujoco_time += timestep * 1000.0;
       }
 
     } else if (this.params["paused"]) {
-      this.dragStateManager.update(); // Update the world-space force origin
+      this.dragStateManager.update();
       let dragged = this.dragStateManager.physicsObject;
       if (dragged && dragged.bodyID) {
         let b = dragged.bodyID;
-        getPosition  (this.data.xpos , b, this.tmpVec , false); // Get raw coordinate from MuJoCo
-        getQuaternion(this.data.xquat, b, this.tmpQuat, false); // Get raw coordinate from MuJoCo
+        getPosition  (this.data.xpos , b, this.tmpVec , false);
+        getQuaternion(this.data.xquat, b, this.tmpQuat, false);
 
         let offset = toMujocoPos(this.dragStateManager.currentWorld.clone()
           .sub(this.dragStateManager.worldHit).multiplyScalar(0.3));
         if (this.model.body_mocapid[b] >= 0) {
-          // Set the root body's mocap position...
-          console.log("Trying to move mocap body", b);
           let addr = this.model.body_mocapid[b] * 3;
           let pos  = this.data.mocap_pos;
           pos[addr+0] += offset.x;
           pos[addr+1] += offset.y;
           pos[addr+2] += offset.z;
         } else {
-          // Set the root body's position directly...
           let root = this.model.body_rootid[b];
           let addr = this.model.jnt_qposadr[this.model.body_jntadr[root]];
           let pos  = this.data.qpos;
@@ -320,7 +402,7 @@ export class MuJoCoDemo {
         }
       }
 
-      mujoco.mj_forward(this.model, this.data);
+      this.mujoco.mj_forward(this.model, this.data);
     }
 
     // Update body transforms.
@@ -357,6 +439,7 @@ export class MuJoCoDemo {
       this.composer.render();
     }
   }
+
 }
 
 let demo = new MuJoCoDemo();

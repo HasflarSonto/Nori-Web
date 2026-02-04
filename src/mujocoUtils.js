@@ -3,6 +3,7 @@ import { Reflector  } from './utils/Reflector.js';
 import { MuJoCoDemo } from './main.js';
 import { keyboardController } from './utils/KeyboardControl.js';
 import { getSceneManager } from './utils/SceneManager.js';
+import { policyController } from './policy/PolicyController.js';
 
 /**
  * Load a modular scene (environment + robot + objects)
@@ -30,9 +31,9 @@ export async function loadModularScene(context, envName, robotName) {
 
   context.mujoco.mj_forward(context.model, context.data);
 
-  // Run update callbacks
+  // Run update callbacks (support async)
   for (let i = 0; i < context.updateGUICallbacks.length; i++) {
-    context.updateGUICallbacks[i](context.model, context.data, context.params);
+    await context.updateGUICallbacks[i](context.model, context.data, context.params);
   }
 
   return sceneManager;
@@ -62,13 +63,14 @@ export async function reloadFunc() {
     await loadSceneFromURL(this.mujoco, sceneManager.scenePath, this);
   this.mujoco.mj_forward(this.model, this.data);
 
+  // Run update callbacks (support async)
   for (let i = 0; i < this.updateGUICallbacks.length; i++) {
-    this.updateGUICallbacks[i](this.model, this.data, this.params);
+    await this.updateGUICallbacks[i](this.model, this.data, this.params);
   }
 }
 
 /** @param {MuJoCoDemo} parentContext*/
-export function setupGUI(parentContext) {
+export async function setupGUI(parentContext) {
 
   // Make sure we reset the camera when the scene is changed or reloaded.
   parentContext.updateGUICallbacks.length = 0;
@@ -97,14 +99,14 @@ export function setupGUI(parentContext) {
       await loadSceneFromURL(parentContext.mujoco, scenePath, parentContext);
     parentContext.mujoco.mj_forward(parentContext.model, parentContext.data);
 
-    // Run update callbacks
+    // Run update callbacks (support async)
     for (let i = 0; i < parentContext.updateGUICallbacks.length; i++) {
-      parentContext.updateGUICallbacks[i](parentContext.model, parentContext.data, parentContext.params);
+      await parentContext.updateGUICallbacks[i](parentContext.model, parentContext.data, parentContext.params);
     }
 
-    // Setup keyboard control
+    // Setup keyboard control (async)
     if (keyboardController.hasConfig(robotName)) {
-      keyboardController.enable(robotName, parentContext.model, parentContext.data, parentContext.mujoco);
+      await keyboardController.enable(robotName, parentContext.model, parentContext.data, parentContext.mujoco);
     }
   };
 
@@ -121,35 +123,108 @@ export function setupGUI(parentContext) {
     }
   };
 
+  // Loading overlay helper
+  let loadingOverlay = null;
+  const showLoading = (message = 'Loading...') => {
+    if (!loadingOverlay) {
+      loadingOverlay = document.createElement('div');
+      loadingOverlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        pointer-events: none;
+      `;
+
+      const spinner = document.createElement('div');
+      spinner.style.cssText = `
+        width: 50px;
+        height: 50px;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top: 4px solid #fff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      `;
+
+      const style = document.createElement('style');
+      style.textContent = `
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `;
+      document.head.appendChild(style);
+
+      const text = document.createElement('div');
+      text.id = 'loading-text';
+      text.style.cssText = `
+        color: white;
+        font-size: 18px;
+        margin-top: 20px;
+        font-family: Arial, sans-serif;
+      `;
+      text.textContent = message;
+
+      loadingOverlay.appendChild(spinner);
+      loadingOverlay.appendChild(text);
+    } else {
+      const text = loadingOverlay.querySelector('#loading-text');
+      if (text) text.textContent = message;
+    }
+
+    if (!document.body.contains(loadingOverlay)) {
+      document.body.appendChild(loadingOverlay);
+    }
+  };
+
+  const hideLoading = () => {
+    if (loadingOverlay && document.body.contains(loadingOverlay)) {
+      document.body.removeChild(loadingOverlay);
+    }
+  };
+
   // Scene loading function for modular scenes
   const loadScene = async () => {
     const sceneManager = getSceneManager(parentContext.mujoco);
     const envName = parentContext.params.environment;
     const robotName = parentContext.params.robot;
 
-    // Custom SPZ mode: reload with new robot
-    if (sceneManager.hasCustomSpz() && envName === 'custom_spz') {
-      removeOldScene();
-      await sceneManager.loadCustomSpzWithRobot(robotName);
-      await loadSceneAndUpdate(sceneManager.scenePath, robotName);
-      await loadCustomSpz3DGS(sceneManager.getCustomSpzData());
-    } else {
-      // Clear custom SPZ if switching to a normal environment
-      if (sceneManager.hasCustomSpz()) {
-        sceneManager.clearCustomSpz();
-        if (parentContext.gsController && parentContext.gsController.enabled) {
-          parentContext.gsController.disable();
+    showLoading(`Loading ${robotName}...`);
+
+    try {
+      // Custom SPZ mode: reload with new robot
+      if (sceneManager.hasCustomSpz() && envName === 'custom_spz') {
+        removeOldScene();
+        await sceneManager.loadCustomSpzWithRobot(robotName);
+        await loadSceneAndUpdate(sceneManager.scenePath, robotName);
+        await loadCustomSpz3DGS(sceneManager.getCustomSpzData());
+      } else {
+        // Clear custom SPZ if switching to a normal environment
+        if (sceneManager.hasCustomSpz()) {
+          sceneManager.clearCustomSpz();
+          if (parentContext.gsController && parentContext.gsController.enabled) {
+            parentContext.gsController.disable();
+          }
+        }
+
+        // Handle uploaded robot or normal robot
+        if (sceneManager.isUploadedRobot(robotName)) {
+          removeOldScene();
+          await sceneManager.reloadUploadedRobot(envName);
+          await loadSceneAndUpdate(sceneManager.scenePath, robotName);
+        } else {
+          await loadModularScene(parentContext, envName, robotName);
         }
       }
-
-      // Handle uploaded robot or normal robot
-      if (sceneManager.isUploadedRobot(robotName)) {
-        removeOldScene();
-        await sceneManager.reloadUploadedRobot(envName);
-        await loadSceneAndUpdate(sceneManager.scenePath, robotName);
-      } else {
-        await loadModularScene(parentContext, envName, robotName);
-      }
+    } finally {
+      hideLoading();
     }
   };
 
@@ -164,7 +239,7 @@ export function setupGUI(parentContext) {
     "SO101": "SO101",
     "Panda": "panda",
     "Humanoid": "humanoid",
-    "Unitree G1": "unitree_g1"
+    "G1": "g1"
   }).name('Robot').onChange(loadScene);
 
   // Add upload robot button
@@ -491,11 +566,150 @@ export function setupGUI(parentContext) {
   });
   actuatorFolder.close();
 
+  // Add Policy Control folder
+  let policyFolder = simulationFolder.addFolder("Policy");
+  let motionController = null;
+  let policyStatusLabel = null;
+
+  // Policy params
+  parentContext.params.policyMotion = '';
+  parentContext.params.policyStatus = 'Not Loaded';
+
+  // Status display (read-only)
+  policyStatusLabel = policyFolder.add(parentContext.params, 'policyStatus').name('Status').disable();
+
+  // Load/Disable Policy button
+  const policyToggle = {
+    togglePolicy: async () => {
+      if (parentContext.policyEnabled) {
+        // Disable policy
+        parentContext.disablePolicy();
+        parentContext.params.policyStatus = 'Disabled';
+        policyStatusLabel.updateDisplay();
+        if (motionController) {
+          motionController.domElement.style.display = 'none';
+        }
+      } else {
+        // Load policy
+        parentContext.params.policyStatus = 'Loading...';
+        policyStatusLabel.updateDisplay();
+        try {
+          const success = await parentContext.loadPolicy('./assets/policies/g1/policy.json');
+          if (success) {
+            parentContext.params.policyStatus = 'Running';
+            policyStatusLabel.updateDisplay();
+            // Update motion options
+            updateMotionOptions();
+            if (motionController) {
+              motionController.domElement.style.display = '';
+            }
+          } else {
+            parentContext.params.policyStatus = 'Load Failed';
+            policyStatusLabel.updateDisplay();
+          }
+        } catch (err) {
+          console.error('Policy load error:', err);
+          parentContext.params.policyStatus = 'Error';
+          policyStatusLabel.updateDisplay();
+        }
+      }
+    }
+  };
+  policyFolder.add(policyToggle, 'togglePolicy').name('Load / Disable Policy');
+
+  // Motion selector dropdown
+  const motionOptions = { '-- Select Motion --': '' };
+  motionController = policyFolder.add(parentContext.params, 'policyMotion', motionOptions).name('Motion');
+  motionController.onChange((value) => {
+    if (value && parentContext.policyEnabled) {
+      parentContext.requestMotion(value);
+    }
+  });
+  motionController.domElement.style.display = 'none'; // Hidden until policy loaded
+
+  // Update motion options from policy
+  const updateMotionOptions = () => {
+    const motions = parentContext.getAvailableMotions();
+    const newOptions = { '-- Select Motion --': '' };
+    for (const motion of motions) {
+      newOptions[motion] = motion;
+    }
+    // Recreate the controller with new options
+    const parent = motionController.domElement.parentElement.parentElement;
+    motionController.destroy();
+    motionController = policyFolder.add(parentContext.params, 'policyMotion', newOptions).name('Motion');
+    motionController.onChange((value) => {
+      if (value && parentContext.policyEnabled) {
+        parentContext.requestMotion(value);
+      }
+    });
+  };
+
+  // Reset button
+  const policyReset = {
+    resetPolicy: () => {
+      parentContext.resetPolicy();
+      // Also reset the simulation
+      if (parentContext.data && parentContext.mujoco) {
+        parentContext.mujoco.mj_resetData(parentContext.model, parentContext.data);
+        parentContext.mujoco.mj_forward(parentContext.model, parentContext.data);
+      }
+    }
+  };
+  policyFolder.add(policyReset, 'resetPolicy').name('Reset');
+
+  policyFolder.close();
+
+  // Auto-load policy for G1 robot
+  const autoLoadPolicyForRobot = async (robotName) => {
+    // Disable existing policy first
+    if (parentContext.policyEnabled) {
+      parentContext.disablePolicy();
+    }
+
+    // Auto-load policy for G1
+    if (robotName === 'g1') {
+      parentContext.params.policyStatus = 'Loading...';
+      policyStatusLabel.updateDisplay();
+      try {
+        const success = await parentContext.loadPolicy('./assets/policies/g1/policy.json');
+        if (success) {
+          parentContext.params.policyStatus = 'Running';
+          policyStatusLabel.updateDisplay();
+          updateMotionOptions();
+          if (motionController) {
+            motionController.domElement.style.display = '';
+          }
+          policyFolder.open();
+        } else {
+          parentContext.params.policyStatus = 'Load Failed';
+          policyStatusLabel.updateDisplay();
+        }
+      } catch (err) {
+        console.error('Auto policy load error:', err);
+        parentContext.params.policyStatus = 'Error';
+        policyStatusLabel.updateDisplay();
+      }
+    } else {
+      // Reset status for non-G1 robots
+      parentContext.params.policyStatus = 'Not Loaded';
+      policyStatusLabel.updateDisplay();
+      if (motionController) {
+        motionController.domElement.style.display = 'none';
+      }
+    }
+  };
+
+  // Register callback to auto-load policy when robot changes
+  parentContext.updateGUICallbacks.push(async (model, data, params) => {
+    await autoLoadPolicyForRobot(params.robot);
+  });
+
   // Add Keyboard Controls folder (only shown for scenes with keyboard config)
   let keyboardFolder = null;
   let keyboardLabel = null;
 
-  const setupKeyboardControls = (model, data, params) => {
+  const setupKeyboardControls = async (model, data, params) => {
     // Remove existing folder if any
     if (keyboardFolder) {
       keyboardFolder.destroy();
@@ -505,7 +719,7 @@ export function setupGUI(parentContext) {
 
     // Check if current robot has keyboard control config
     if (keyboardController.hasConfig(params.robot)) {
-      keyboardController.enable(params.robot, model, data, parentContext.mujoco);
+      await keyboardController.enable(params.robot, model, data, parentContext.mujoco);
 
       keyboardFolder = simulationFolder.addFolder("Keyboard Controls");
       // Add description labels - support multi-line descriptions
@@ -528,11 +742,11 @@ export function setupGUI(parentContext) {
   };
 
   // Setup for initial scene
-  setupKeyboardControls(parentContext.model, parentContext.data, parentContext.params);
+  await setupKeyboardControls(parentContext.model, parentContext.data, parentContext.params);
 
-  // Update when scene changes
-  parentContext.updateGUICallbacks.push((model, data, params) => {
-    setupKeyboardControls(model, data, params);
+  // Update when scene changes (async callback)
+  parentContext.updateGUICallbacks.push(async (model, data, params) => {
+    await setupKeyboardControls(model, data, params);
   });
 
   // Add function that resets the camera to the default position.

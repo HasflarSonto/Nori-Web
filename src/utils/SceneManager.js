@@ -42,10 +42,10 @@ export class SceneManager {
       meshDir: null,  // humanoid uses primitive shapes, no assets
       description: 'DeepMind Humanoid'
     },
-    'unitree_g1': {
-      xmlPath: './assets/robots/unitree_g1/g1.xml',
+    'g1': {
+      xmlPath: './assets/robots/g1/g1.xml',
       objectsPath: null,
-      robotDir: 'unitree_g1',
+      robotDir: 'g1',
       meshDir: 'assets',
       description: 'Unitree G1 Humanoid'
     }

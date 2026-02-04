@@ -27,6 +27,7 @@
     "@sparkjsdev/spark": "^0.1.10",
     "esbuild": "^0.25.12",
     "mujoco-js": "^0.0.7",
+    "onnxruntime-web": "^1.23.2",
     "three": "^0.178.0"
   }
 }

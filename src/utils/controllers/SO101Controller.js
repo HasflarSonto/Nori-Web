@@ -78,7 +78,7 @@ export class SO101Controller extends BaseController {
    * @param {object} data - MuJoCo data
    * @param {object} _mujoco - MuJoCo WASM module (unused)
    */
-  initialize(_model, data, _mujoco) {
+  async initialize(_model, data, _mujoco) {
     this._initState();
 
     // Write initial control values to position actuators
@@ -104,15 +104,15 @@ export class SO101Controller extends BaseController {
   }
 
   /**
-   * Update controls based on keyboard state
+   * 异步控制步进 - 每个控制周期调用一次
    * @param {object} keyStates - Current keyboard states
    * @param {object} model - MuJoCo model
    * @param {object} data - MuJoCo data
    * @param {object} _mujoco - MuJoCo WASM module (unused)
    */
-  update(keyStates, model, data, _mujoco) {
+  async step(keyStates, model, data, _mujoco) {
     if (!this.initialized || !this.state) {
-      this.initialize(model, data, _mujoco);
+      await this.initialize(model, data, _mujoco);
     }
 
     // Decrement gripper cooldown

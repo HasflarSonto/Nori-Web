@@ -423,7 +423,7 @@ export class PandaController extends BaseController {
   /**
    * Initialize the controller with model and data
    */
-  initialize(model, data, mujoco) {
+  async initialize(model, data, mujoco) {
     this.mujoco = mujoco;
     this.handBodyId = this._getBodyId(model, 'hand');
 
@@ -494,11 +494,11 @@ export class PandaController extends BaseController {
   }
 
   /**
-   * Update controls based on keyboard state
+   * 异步控制步进 - 每个控制周期调用一次
    */
-  update(keyStates, model, data, mujoco) {
+  async step(keyStates, model, data, mujoco) {
     if (!this.initialized || !this.state) {
-      this.initialize(model, data, mujoco);
+      await this.initialize(model, data, mujoco);
       return;
     }
 
