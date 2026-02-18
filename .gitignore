@@ -61,3 +61,6 @@ test/test_runner
 node_modules/**/*
 jspm_packages/
 package-lock.json
+
+# Environment secrets
+.env

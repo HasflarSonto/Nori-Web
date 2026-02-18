@@ -1056,12 +1056,13 @@ export async function loadSceneFromURL(mujoco, filename, parent) {
       }
 
       // ===== 修改：使用 Toon 材质实现 NPR 风格 =====
-      let currentMaterial = new THREE.MeshToonMaterial({
+      const materialParams = {
         color: new THREE.Color(color[0], color[1], color[2]),
         transparent: color[3] < 1.0,
         opacity: color[3] < 1.0 ? color[3] : 1.0,
-        map: texture
-      });
+      };
+      if (texture) { materialParams.map = texture; }
+      let currentMaterial = new THREE.MeshToonMaterial(materialParams);
 
       let mesh;// = new THREE.Mesh();
       if (type == 0) {

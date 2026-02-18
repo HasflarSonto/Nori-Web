@@ -1,13 +1,16 @@
 {
   "name": "mujoco_wasm",
   "version": "3.3.8",
-  "description": "Run MuJoCo simulations in browser",
+  "type": "module",
+  "description": "Run MuJoCo simulations in browser with AI robot control",
   "main": "src/main.js",
   "directories": {
     "lib": "lib"
   },
   "scripts": {
-    "build": "esbuild ./src/main.js --bundle --sourcemap --format=esm --outdir=./build --platform=node"
+    "build": "esbuild ./src/main.js --bundle --sourcemap --format=esm --outdir=./build --platform=node",
+    "start": "node server/server.js",
+    "dev": "node server/server.js"
   },
   "repository": {
     "type": "git",
@@ -15,7 +18,9 @@
   },
   "keywords": [
     "mujoco",
-    "wasm"
+    "wasm",
+    "robotics",
+    "ai"
   ],
   "author": "Sergei Surovtsev and Johnathon Selstad",
   "license": "ISC",
@@ -24,10 +29,14 @@
   },
   "homepage": "https://github.com/zalo/mujoco_wasm#readme",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@sparkjsdev/spark": "^0.1.10",
+    "dotenv": "^16.4.7",
     "esbuild": "^0.25.12",
+    "express": "^4.21.2",
     "mujoco-js": "^0.0.7",
     "onnxruntime-web": "^1.23.2",
-    "three": "^0.178.0"
+    "three": "^0.178.0",
+    "ws": "^8.18.0"
   }
 }

@@ -8,6 +8,10 @@ import { keyboardController } from './utils/KeyboardControl.js';
 import   load_mujoco        from '../node_modules/mujoco-js/dist/mujoco_wasm.js';
 import { getSceneManager } from './utils/SceneManager.js';
 import { policyController } from './policy/PolicyController.js';
+import { RobotCamera } from './api/RobotCamera.js';
+import { SimulationAPI } from './api/SimulationAPI.js';
+import { WebSocketClient } from './api/WebSocketClient.js';
+import { ChatPanel } from './ui/ChatPanel.js';
 
 // ===== 新增：后处理相关 =====
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -466,6 +470,17 @@ export class MuJoCoDemo {
       }
     }
 
+    // Update robot head camera position from simulation
+    if (this.robotCamera) {
+      this.robotCamera.update(this.data);
+
+      // Update PiP preview (~10fps to save GPU)
+      if (!this._lastPipTime || timeMS - this._lastPipTime > 100) {
+        this._lastPipTime = timeMS;
+        this.robotCamera.updatePreview();
+      }
+    }
+
     // Draw Tendons and Flex verts
     drawTendonsAndFlex(this.mujocoRoot, this.model, this.data);
 
@@ -487,6 +502,39 @@ export class MuJoCoDemo {
 
 let demo = new MuJoCoDemo();
 await demo.init();
+
+// ============================================================================
+// AI Robot Control Integration
+// ============================================================================
+
+// Initialize robot head camera
+const robotCamera = new RobotCamera(demo.renderer, demo.scene);
+robotCamera.init(demo.model, demo.bodies);
+robotCamera.createPreview();
+demo.robotCamera = robotCamera;
+
+// Initialize SimulationAPI
+const simApi = new SimulationAPI(demo, robotCamera);
+demo.simApi = simApi;
+
+// Initialize WebSocket connection to AI server
+const wsClient = new WebSocketClient(simApi);
+demo.wsClient = wsClient;
+
+// Connect to AI server (only if served by the server, not static)
+if (window.location.port === '3000' || window.location.search.includes('ai=1')) {
+  wsClient.connect();
+}
+
+// Initialize Chat Panel UI
+const chatPanel = new ChatPanel();
+demo.chatPanel = chatPanel;
+
+// Re-init robot camera and caches when model changes
+demo.updateGUICallbacks.push((model, data, params) => {
+  robotCamera.init(model, demo.bodies);
+  simApi.rebuildCaches();
+});
 
 // ============================================================================
 // Gaussian Splatting Environment Controller (Same-Scene SplatMesh)
@@ -621,7 +669,7 @@ githubBtn.textContent = 'GitHub';
 githubBtn.style.cssText = `
   position: fixed;
   bottom: 20px;
-  right: 200px;
+  left: 20px;
   padding: 12px 20px;
   font-size: 14px;
   font-weight: 600;
@@ -657,7 +705,7 @@ gsToggleBtn.textContent = 'Enable 3DGS';
 gsToggleBtn.style.cssText = `
   position: fixed;
   bottom: 20px;
-  right: 20px;
+  left: 200px;
   padding: 12px 20px;
   font-size: 14px;
   font-weight: 600;

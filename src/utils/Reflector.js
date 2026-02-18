@@ -55,7 +55,7 @@ class Reflector extends Mesh {
 
 		const renderTarget = new WebGLRenderTarget( textureWidth, textureHeight, { samples: multisample, type: HalfFloatType } );
 
-		this.material = new MeshPhysicalMaterial( { map: blendTexture });
+		this.material = new MeshPhysicalMaterial( blendTexture ? { map: blendTexture } : {} );
 		this.material.uniforms = { tDiffuse     : { value: renderTarget.texture },
 								   textureMatrix: { value: textureMatrix        }};
         this.material.onBeforeCompile = ( shader ) => {
